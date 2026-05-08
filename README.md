@@ -5,7 +5,7 @@ A native GTK4/libadwaita settings app for [Hyprland](https://hyprland.org) — t
 [![CI](https://github.com/BlueManCZ/hyprmod/actions/workflows/ci.yml/badge.svg)](https://github.com/BlueManCZ/hyprmod/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![AUR](https://img.shields.io/aur/version/hyprmod-git?label=AUR)](https://aur.archlinux.org/packages/hyprmod-git)
+[![AUR](https://img.shields.io/aur/version/hyprmod?label=AUR)](https://aur.archlinux.org/packages/hyprmod)
 
 <p>
   <img src="data/screenshots/monitors.png" width="49%" alt="Monitor configuration page with a multi-monitor layout preview">
@@ -54,16 +54,16 @@ Huge thanks to the creators below — without you, HyprMod would reach far fewer
 
 Requires Python 3.12+, GTK4, libadwaita, and a running Hyprland instance.
 
-**Arch Linux:** install the [`hyprmod-git`](https://aur.archlinux.org/packages/hyprmod-git) AUR package with your favorite helper:
+**Arch Linux:** install the [`hyprmod`](https://aur.archlinux.org/packages/hyprmod) AUR package with your favorite helper:
 
 ```bash
-yay -S hyprmod-git
+yay -S hyprmod
 ```
 
 **Gentoo:** available via the [`edgets`](https://github.com/BlueManCZ/edgets) overlay:
 
 ```bash
-emerge --ask --autounmask gui-apps/hyprmod
+emerge -a hyprmod
 ```
 
 Other distributions — build from source:
