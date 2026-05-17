@@ -113,13 +113,17 @@ class WorkspaceRuleEditDialog(SingletonDialogMixin, Adw.Dialog):
         self,
         *,
         rule: WorkspaceRule | None = None,
-        monitor_names: list[str] | None = None,
+        monitor_choices: list[tuple[str, str]] | None = None,
         on_apply: Callable[[WorkspaceRule], None] | None = None,
     ):
         super().__init__()
         self._is_new = rule is None
         self._on_apply_callback = on_apply
-        self._monitor_names = monitor_names or []
+        # (connector, label) pairs. Connector is the underlying value we save
+        # into the rule; label is the friendly form ("DP-1 — Dell AW3423DWF")
+        # we show in the combo.
+        self._monitor_choices = monitor_choices or []
+        self._monitor_connectors = [c for c, _ in self._monitor_choices]
 
         self.set_title("New Workspace Rule" if self._is_new else "Edit Workspace Rule")
         self.set_content_width(600)
@@ -219,8 +223,8 @@ class WorkspaceRuleEditDialog(SingletonDialogMixin, Adw.Dialog):
         )
 
         # First entry is "no monitor binding" — keeps the rule unbound.
-        self._monitor_options: list[str | None] = [None] + list(self._monitor_names)
-        labels = ["— Any monitor —"] + list(self._monitor_names)
+        self._monitor_options: list[str | None] = [None] + list(self._monitor_connectors)
+        labels = ["Any monitor"] + [label for _, label in self._monitor_choices]
         self._monitor_row = Adw.ComboRow(title="Monitor")
         self._monitor_row.set_model(Gtk.StringList.new(labels))
         self._monitor_row.connect("notify::selected", lambda *_: self._refresh())
@@ -496,8 +500,8 @@ class WorkspaceRuleEditDialog(SingletonDialogMixin, Adw.Dialog):
         self._selector_value.set_text(svalue)
 
         # Monitor + default
-        if rule.monitor is not None and rule.monitor in self._monitor_names:
-            self._monitor_row.set_selected(self._monitor_names.index(rule.monitor) + 1)
+        if rule.monitor is not None and rule.monitor in self._monitor_connectors:
+            self._monitor_row.set_selected(self._monitor_connectors.index(rule.monitor) + 1)
         elif rule.monitor is not None:
             # Monitor that isn't in the live list — append it so the user
             # can see what's saved without losing the binding.

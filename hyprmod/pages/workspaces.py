@@ -15,6 +15,11 @@ list editor for those rules, following the same data-flow shape as
 - On Apply, the new rule is pushed live to the compositor via
   ``hypr.keyword("workspace", body)``. The library auto-routes the call
   through ``hl.workspace_rule({...})`` in Lua-mode Hyprland 0.55+.
+  Hyprland only consults rule properties at workspace creation, so a
+  follow-up pass dispatches ``moveworkspacetomonitor`` / ``renameworkspace``
+  on any already-open workspace the rule matches — that's what makes
+  monitor binding and ``defaultName`` visible right away instead of
+  "next time this workspace opens."
 - Rules from outside our managed file (the user's ``hyprland.conf`` or
   any file it sources, plus Lua ``dofile`` chains) are surfaced
   read-only at the bottom with the source path + line number.
@@ -31,7 +36,7 @@ needs an explicit "re-apply baseline" to revert.
 from html import escape as html_escape
 
 from gi.repository import Adw, Gtk
-from hyprland_socket import HyprlandError
+from hyprland_socket import HyprlandError, get_workspaces
 
 from hyprmod.core import config
 from hyprmod.core.ownership import SavedList
@@ -40,6 +45,7 @@ from hyprmod.core.workspaces import (
     ExternalWorkspaceRule,
     WorkspaceRule,
     load_external_workspace_rules,
+    matches_workspace,
     parse_workspace_rule_lines,
     serialize,
     summarize_rule,
@@ -222,30 +228,88 @@ class WorkspacesPage(SavedListSectionPage[WorkspaceRule]):
     # ── Live apply (push to running compositor) ──
 
     def _apply_rule_live(self, rule: WorkspaceRule) -> bool:
-        """Push *rule* to the running compositor.
+        """Push *rule* to the running compositor and project it onto live workspaces.
 
-        Routes through ``hypr.keyword("workspace", body)`` which in
-        Lua-mode Hyprland gets auto-translated to ``hl.workspace_rule``
-        via ``hyprland-state``. Hyprland's workspace-rule lookup is
-        per-workspace last-wins, so re-pushing the same workspace ID
-        with new properties cleanly replaces the previous rule's effect.
+        Two steps:
 
-        Returns ``True`` on success; a toast has already been shown on
-        failure via :func:`try_with_toast`.
+        1. ``hypr.keyword("workspace", body)`` registers the rule (in
+           Lua-mode Hyprland this is auto-translated to
+           ``hl.workspace_rule`` via ``hyprland-state``). Hyprland's
+           workspace-rule lookup is per-workspace last-wins, so
+           re-pushing the same selector with new properties cleanly
+           replaces the previous rule's effect.
+        2. For any *already-open* workspace the rule matches, dispatch
+           the equivalent live mutator — ``moveworkspacetomonitor`` for
+           a monitor binding, ``renameworkspace`` for ``defaultName``.
+           Hyprland evaluates rule properties at workspace creation, so
+           without this pass the user would have to close + reopen the
+           workspace before the change became visible.
+
+        ``persistent``, gap, and decoration overrides apply on the next
+        render without help — Hyprland reads them on each frame. The
+        ``on-created-empty`` hook is by definition first-map-only and
+        can't be triggered retroactively, so we don't try.
+
+        Returns ``True`` if the keyword push succeeded (a toast has
+        already been shown on failure).
         """
-        return try_with_toast(
+        ok = try_with_toast(
             self._window.show_toast,
             "Workspace rule failed",
             lambda: self._window.hypr.keyword(config.KEYWORD_WORKSPACE, rule.body()),
             catch=HyprlandError,
         )
+        if not ok:
+            return False
+        self._apply_to_existing(rule)
+        return True
+
+    def _apply_to_existing(self, rule: WorkspaceRule) -> None:
+        """Replicate *rule*'s effect on each already-open matching workspace.
+
+        Best-effort: bails early when the rule carries nothing we can
+        project (monitor binding or rename), so we don't pay for an IPC
+        round-trip on a pure decoration tweak. Dispatcher errors are
+        swallowed — the rule is already registered, and the next
+        workspace creation will pick it up regardless.
+        """
+        if rule.monitor is None and rule.default_name is None:
+            return
+        try:
+            workspaces = get_workspaces()
+        except HyprlandError:
+            return
+        for ws in workspaces:
+            if not matches_workspace(rule, ws.id, ws.name):
+                continue
+            if rule.monitor is not None and ws.monitor != rule.monitor:
+                try:
+                    self._window.hypr.dispatch("moveworkspacetomonitor", f"{ws.id} {rule.monitor}")
+                except HyprlandError:
+                    pass
+            if rule.default_name is not None and ws.name != rule.default_name:
+                try:
+                    self._window.hypr.dispatch("renameworkspace", f"{ws.id} {rule.default_name}")
+                except HyprlandError:
+                    pass
 
     # ── Add / Edit / Discard / Restore ──
 
-    def _monitor_names(self) -> list[str]:
-        """Live monitor connector names for the dialog's monitor picker."""
+    def _monitor_choices(self) -> list[tuple[str, str]]:
+        """Live monitors as ``(connector, label)`` pairs for the dialog.
+
+        Label is ``"DP-1 — Dell AW3423DWF"`` when make/model is available
+        and ``"DP-1"`` when it isn't. The connector half is what we save
+        into the rule, so the on-disk form stays portable across monitor
+        layout changes that swap make/model strings.
+        """
         monitors = self._window.hypr.monitors.get_all() or []
-        return sorted(m.name for m in monitors)
+        result: list[tuple[str, str]] = []
+        for m in sorted(monitors, key=lambda mon: mon.name):
+            friendly = f"{(m.make or '').strip()} {(m.model or '').strip()}".strip()
+            label = f"{m.name} — {friendly}" if friendly else m.name
+            result.append((m.name, label))
+        return result
 
     def _on_add(self) -> None:
         def on_apply(new_rule: WorkspaceRule) -> None:
@@ -254,7 +318,7 @@ class WorkspacesPage(SavedListSectionPage[WorkspaceRule]):
 
         WorkspaceRuleEditDialog.present_singleton(
             self._window,
-            monitor_names=self._monitor_names(),
+            monitor_choices=self._monitor_choices(),
             on_apply=on_apply,
         )
 
@@ -272,7 +336,7 @@ class WorkspacesPage(SavedListSectionPage[WorkspaceRule]):
         WorkspaceRuleEditDialog.present_singleton(
             self._window,
             rule=current,
-            monitor_names=self._monitor_names(),
+            monitor_choices=self._monitor_choices(),
             on_apply=on_apply,
         )
 

@@ -344,6 +344,44 @@ def summarize_rule(rule: WorkspaceRule) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Live-apply matching
+# ---------------------------------------------------------------------------
+
+
+def matches_workspace(rule: WorkspaceRule, ws_id: int, ws_name: str) -> bool:
+    """Does *rule*'s selector match an already-open workspace?
+
+    Used by the live-apply path to enforce monitor binding and
+    ``defaultName`` retroactively on existing workspaces — Hyprland only
+    consults rule properties at workspace creation, so a freshly-pushed
+    rule won't move/rename a workspace that's already open.
+
+    Per-monitor (``m[N]``) selectors are inherently "the N-th workspace
+    on a monitor" — they don't pin to a stable workspace identity, so
+    we don't attempt retroactive matching for them. Unknown selector
+    shapes return ``False`` for the same reason.
+    """
+    selector = rule.workspace
+    if selector.isdigit():
+        return ws_id == int(selector)
+    if selector.startswith("name:"):
+        return ws_name == selector[5:]
+    if selector.startswith("special:"):
+        # Hyprland names special workspaces ``special:foo`` in IPC.
+        return ws_name == selector
+    if selector.startswith("r[") and selector.endswith("]"):
+        body = selector[2:-1]
+        lo_s, sep, hi_s = body.partition("-")
+        if not sep:
+            return False
+        try:
+            return int(lo_s) <= ws_id <= int(hi_s)
+        except ValueError:
+            return False
+    return False
+
+
+# ---------------------------------------------------------------------------
 # External loader (read-only display of rules from outside our managed file)
 # ---------------------------------------------------------------------------
 
@@ -393,6 +431,7 @@ __all__ = [
     "GapValue",
     "WorkspaceRule",
     "load_external_workspace_rules",
+    "matches_workspace",
     "parse_workspace_rule_body",
     "parse_workspace_rule_lines",
     "serialize",

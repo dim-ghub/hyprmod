@@ -11,6 +11,7 @@ from hyprmod.core import config
 from hyprmod.core.workspaces import (
     WORKSPACE_RULE_KEYWORDS,
     WorkspaceRule,
+    matches_workspace,
     parse_workspace_rule_body,
     parse_workspace_rule_lines,
     serialize,
@@ -242,6 +243,59 @@ class TestSummaries:
 # ---------------------------------------------------------------------------
 # Config-section integration
 # ---------------------------------------------------------------------------
+
+
+class TestMatchesWorkspace:
+    """Selector → live-workspace matching for the retroactive-apply path."""
+
+    def test_numeric_matches_by_id(self) -> None:
+        rule = WorkspaceRule(workspace="3")
+        assert matches_workspace(rule, ws_id=3, ws_name="3")
+        assert not matches_workspace(rule, ws_id=4, ws_name="4")
+
+    def test_numeric_ignores_name(self) -> None:
+        # Numeric selectors are id-based even when Hyprland reports the
+        # workspace under a friendly name.
+        rule = WorkspaceRule(workspace="1")
+        assert matches_workspace(rule, ws_id=1, ws_name="main")
+
+    def test_named_matches_by_name(self) -> None:
+        rule = WorkspaceRule(workspace="name:work")
+        assert matches_workspace(rule, ws_id=42, ws_name="work")
+        assert not matches_workspace(rule, ws_id=42, ws_name="play")
+
+    def test_special_matches_full_selector(self) -> None:
+        # Special workspaces appear in IPC as ``special:foo``, so the
+        # selector compares against the whole name.
+        rule = WorkspaceRule(workspace="special:scratchpad")
+        assert matches_workspace(rule, ws_id=-99, ws_name="special:scratchpad")
+        assert not matches_workspace(rule, ws_id=-99, ws_name="scratchpad")
+
+    def test_range_matches_inclusive_bounds(self) -> None:
+        rule = WorkspaceRule(workspace="r[1-3]")
+        assert matches_workspace(rule, ws_id=1, ws_name="1")
+        assert matches_workspace(rule, ws_id=2, ws_name="2")
+        assert matches_workspace(rule, ws_id=3, ws_name="3")
+        assert not matches_workspace(rule, ws_id=0, ws_name="0")
+        assert not matches_workspace(rule, ws_id=4, ws_name="4")
+
+    def test_range_with_malformed_body_returns_false(self) -> None:
+        # Don't blow up on plugin-shaped or malformed selectors — the
+        # retroactive-apply path treats them as "no match" so the rule
+        # still gets registered for future workspace creations.
+        rule = WorkspaceRule(workspace="r[oops]")
+        assert not matches_workspace(rule, ws_id=1, ws_name="1")
+
+    def test_per_monitor_selector_skipped(self) -> None:
+        # ``m[N]`` is "the N-th workspace on a monitor" — doesn't pin to
+        # a stable workspace identity, so we don't try to match existing
+        # workspaces against it.
+        rule = WorkspaceRule(workspace="m[1]")
+        assert not matches_workspace(rule, ws_id=1, ws_name="1")
+
+    def test_unknown_selector_shape_returns_false(self) -> None:
+        rule = WorkspaceRule(workspace="some-plugin-selector")
+        assert not matches_workspace(rule, ws_id=1, ws_name="1")
 
 
 class TestSectionIntegration:
