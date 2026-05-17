@@ -33,7 +33,14 @@ from hyprmod.ui.icons import MONITORS_ICON
 from hyprmod.ui.monitor_preview import MonitorLayoutPreview
 from hyprmod.ui.timer import Timer
 
-_EXTRA_FIELDS = ("bit_depth", "vrr", "color_management", "mirror_of")
+_EXTRA_FIELDS = (
+    "bit_depth",
+    "vrr",
+    "color_management",
+    "sdr_brightness",
+    "sdr_saturation",
+    "mirror_of",
+)
 
 
 class MonitorsPage(SectionPage):

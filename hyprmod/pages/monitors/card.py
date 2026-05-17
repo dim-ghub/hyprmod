@@ -19,8 +19,41 @@ BITDEPTH_VALUES = [None, "8", "10"]
 VRR_MODES = ["Off", "On", "Fullscreen only", "Fullscreen + Gaming"]
 VRR_VALUES = [None, "1", "2", "3"]
 
-CM_MODES = ["Off", "sRGB", "HDR"]
-CM_VALUES = [None, "srgb", "hdr"]
+CM_MODES = ["Auto", "sRGB", "Adobe", "Wide", "EDID", "HDR", "HDR (EDID)"]
+CM_VALUES = [None, "srgb", "adobe", "wide", "edid", "hdr", "hdredid"]
+
+# Hyprland applies sdrbrightness/sdrsaturation only when an HDR preset is active.
+_HDR_CM_VALUES = frozenset({"hdr", "hdredid"})
+
+# UI range for the SDR brightness/saturation spinners.
+SDR_VALUE_MIN = 0.0
+SDR_VALUE_MAX = 2.0
+SDR_VALUE_STEP = 0.05
+SDR_VALUE_DIGITS = 2
+SDR_VALUE_DEFAULT = 1.0
+
+
+def _parse_sdr(value: str | None) -> float:
+    """Parse a stored sdr_brightness/sdr_saturation string into the spinner's float."""
+    if value is None:
+        return SDR_VALUE_DEFAULT
+    try:
+        return float(value)
+    except ValueError:
+        return SDR_VALUE_DEFAULT
+
+
+def _format_sdr(value: float) -> str | None:
+    """Format a spinner value back into config-line form, or None at the default.
+
+    Keeps at least one integer digit so ``0`` renders as ``"0"`` rather than ``""``.
+    """
+    # Epsilon handles FP jitter from the spinner; the user picks exact 1.0 to reset.
+    if abs(value - SDR_VALUE_DEFAULT) < 1e-3:
+        return None
+    int_part, _, frac = f"{value:.2f}".partition(".")
+    frac = frac.rstrip("0")
+    return f"{int_part}.{frac}" if frac else int_part
 
 
 class MonitorCard(Gtk.Box):
@@ -278,6 +311,10 @@ class MonitorCard(Gtk.Box):
             self._on_cm_changed,
             lambda: self._discard_fields("color_management"),
         )
+        # SDR brightness/saturation only affect SDR content while an HDR preset is
+        # active; we build a single row with two inline spinboxes (mirroring the
+        # Position row) and toggle visibility based on the current cm value.
+        self._sdr_row = self._build_sdr_row(monitor)
         self._bitdepth_row = self._build_extra_combo(
             "ten_bit",
             "Bit Depth",
@@ -298,9 +335,10 @@ class MonitorCard(Gtk.Box):
             self._on_vrr_changed,
             lambda: self._discard_fields("vrr"),
         )
-        for row in (self._cm_row, self._bitdepth_row, self._vrr_row):
+        for row in (self._cm_row, self._sdr_row, self._bitdepth_row, self._vrr_row):
             if row is not None:
                 self._advanced_expander.add_row(row)
+        self._refresh_sdr_visibility()
 
         self.append(advanced_group)
 
@@ -321,6 +359,7 @@ class MonitorCard(Gtk.Box):
             self._pos_row,
             self._mirror_row,
             self._cm_row,
+            self._sdr_row,
             self._bitdepth_row,
             self._vrr_row,
             self._identify_row,
@@ -401,6 +440,65 @@ class MonitorCard(Gtk.Box):
         self._attach_row_actions(row, on_discard)
         return row
 
+    def _build_sdr_row(self, monitor: MonitorState) -> Adw.ActionRow | None:
+        """Build a single SDR row with inline brightness/saturation spinboxes."""
+        if not self._caps.get("hdr"):
+            self._sdr_brightness = None
+            self._sdr_saturation = None
+            return None
+
+        self._sdr_brightness = self._make_sdr_spin(_parse_sdr(monitor.sdr_brightness))
+        self._sdr_saturation = self._make_sdr_spin(_parse_sdr(monitor.sdr_saturation))
+
+        row = Adw.ActionRow(
+            title="SDR",
+            subtitle="Brightness and saturation for SDR content in HDR mode",
+        )
+        for label_text, widget, margin_start, margin_end in [
+            ("Brightness", self._sdr_brightness, 0, 4),
+            ("Saturation", self._sdr_saturation, 12, 4),
+        ]:
+            lbl = Gtk.Label(label=label_text)
+            lbl.add_css_class("dim-label")
+            lbl.set_valign(Gtk.Align.CENTER)
+            lbl.set_margin_start(margin_start)
+            lbl.set_margin_end(margin_end)
+            row.add_suffix(lbl)
+            row.add_suffix(widget)
+
+        self._signals.connect(self._sdr_brightness, "value-changed", self._on_sdr_changed)
+        self._signals.connect(self._sdr_saturation, "value-changed", self._on_sdr_changed)
+        self._attach_row_actions(
+            row, lambda: self._discard_fields("sdr_brightness", "sdr_saturation")
+        )
+        return row
+
+    def _make_sdr_spin(self, value: float) -> Gtk.SpinButton:
+        return Gtk.SpinButton(
+            adjustment=Gtk.Adjustment(
+                value=value,
+                lower=SDR_VALUE_MIN,
+                upper=SDR_VALUE_MAX,
+                step_increment=SDR_VALUE_STEP,
+                page_increment=SDR_VALUE_STEP * 4,
+            ),
+            digits=SDR_VALUE_DIGITS,
+            valign=Gtk.Align.CENTER,
+        )
+
+    def _is_hdr_cm_active(self) -> bool:
+        """Whether the current cm preset is one that makes sdr* values effective."""
+        if self._cm_row is None:
+            return False
+        idx = self._cm_row.get_selected()
+        if idx < 0 or idx >= len(CM_VALUES):
+            return False
+        return CM_VALUES[idx] in _HDR_CM_VALUES
+
+    def _refresh_sdr_visibility(self):
+        if self._sdr_row is not None:
+            self._sdr_row.set_visible(self._is_hdr_cm_active())
+
     def _attach_row_actions(self, row: Adw.ActionRow | Adw.ComboRow, discard_handler):
         """Attach a RowActions strip (discard only, no per-row remove)."""
         actions = RowActions(
@@ -449,6 +547,11 @@ class MonitorCard(Gtk.Box):
             if self._cm_row:
                 c = mon.color_management
                 self._cm_row.set_selected(CM_VALUES.index(c) if c in CM_VALUES else 0)
+            if self._sdr_brightness is not None:
+                self._sdr_brightness.set_value(_parse_sdr(mon.sdr_brightness))
+            if self._sdr_saturation is not None:
+                self._sdr_saturation.set_value(_parse_sdr(mon.sdr_saturation))
+            self._refresh_sdr_visibility()
 
             mirror_idx = 0
             if mon.mirror_of in self._mirror_values:
@@ -490,6 +593,7 @@ class MonitorCard(Gtk.Box):
                 self._pos_row,
                 self._mirror_row,
                 self._cm_row,
+                self._sdr_row,
                 self._bitdepth_row,
                 self._vrr_row,
                 self._identify_row,
@@ -510,6 +614,11 @@ class MonitorCard(Gtk.Box):
                 (self._pos_row, mon.x != baseline.x or mon.y != baseline.y),
                 (self._mirror_row, mon.mirror_of != baseline.mirror_of),
                 (self._cm_row, mon.color_management != baseline.color_management),
+                (
+                    self._sdr_row,
+                    mon.sdr_brightness != baseline.sdr_brightness
+                    or mon.sdr_saturation != baseline.sdr_saturation,
+                ),
                 (self._bitdepth_row, mon.bit_depth != baseline.bit_depth),
                 (self._vrr_row, mon.vrr != baseline.vrr),
                 (
@@ -570,6 +679,16 @@ class MonitorCard(Gtk.Box):
     def _on_cm_changed(self, row: Adw.ComboRow, *_args):
         idx = row.get_selected()
         self._emit({"color_management": CM_VALUES[idx] if idx < len(CM_VALUES) else None})
+        self._refresh_sdr_visibility()
+
+    def _on_sdr_changed(self, *_args):
+        new_vals: dict = {}
+        if self._sdr_brightness is not None:
+            new_vals["sdr_brightness"] = _format_sdr(self._sdr_brightness.get_value())
+        if self._sdr_saturation is not None:
+            new_vals["sdr_saturation"] = _format_sdr(self._sdr_saturation.get_value())
+        if new_vals:
+            self._emit(new_vals)
 
     def _on_mirror_changed(self, *_args):
         idx = self._mirror_row.get_selected()
