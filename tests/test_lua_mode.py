@@ -289,3 +289,138 @@ class TestLuaReplacementForStoredPath:
         monkeypatch.setenv("HOME", str(tmp_path))
         lua = tmp_path / "managed.lua"
         assert config.lua_replacement_for_stored_path("~/managed.conf", [lua]) == str(lua)
+
+
+class TestEnsureManagedPathMatchesMode:
+    """Startup repoint when the user switched Hyprland config language out-of-band.
+
+    Covers the failure mode where a custom ``config-path`` GSetting was
+    set under one config language and the user later switched Hyprland
+    to the other — hyprmod would otherwise silently write the wrong
+    format to a file the live compositor never loads.
+    """
+
+    def test_swaps_when_lua_sibling_exists(self, lua_mode, tmp_path) -> None:
+        stored = tmp_path / "managed.conf"
+        stored.write_text("general {\n  gaps_in = 5\n}\n")
+        lua = stored.with_suffix(".lua")
+        lua.write_text("-- pre-existing lua\n")
+        result = config.ensure_managed_path_matches_mode(str(stored))
+        assert result == str(lua)
+        # Existing .lua wins — we don't overwrite a sibling the user
+        # already converted (possibly with edits we don't know about).
+        assert lua.read_text() == "-- pre-existing lua\n"
+
+    def test_converts_conf_when_no_lua_sibling(self, lua_mode, tmp_path) -> None:
+        stored = tmp_path / "managed.conf"
+        stored.write_text("general {\n  gaps_in = 5\n}\n")
+        lua = stored.with_suffix(".lua")
+        result = config.ensure_managed_path_matches_mode(str(stored))
+        assert result == str(lua)
+        # Conversion ran: .lua now exists with Lua syntax derived from
+        # the .conf content, .conf is left as-is for the user to clean
+        # up on their own terms.
+        assert lua.exists()
+        lua_text = lua.read_text()
+        assert "hl.config(" in lua_text
+        assert "gaps_in = 5" in lua_text
+        assert stored.exists()
+
+    def test_returns_lua_path_when_neither_exists(self, lua_mode, tmp_path) -> None:
+        stored = tmp_path / "managed.conf"
+        lua = stored.with_suffix(".lua")
+        # Nothing to convert, but still need to repoint so the next
+        # write_all() lands on .lua instead of .conf.
+        result = config.ensure_managed_path_matches_mode(str(stored))
+        assert result == str(lua)
+        assert not lua.exists()
+
+    def test_no_op_when_suffix_already_matches_lua_mode(self, lua_mode, tmp_path) -> None:
+        stored = tmp_path / "managed.lua"
+        stored.write_text("")
+        assert config.ensure_managed_path_matches_mode(str(stored)) is None
+
+    def test_no_op_when_stored_is_empty(self, lua_mode) -> None:
+        # Empty stored means "use default" — mode-driven suffix already
+        # adapts via managed_path(), nothing to repoint.
+        assert config.ensure_managed_path_matches_mode("") is None
+
+    def test_no_op_for_unmanaged_suffix(self, lua_mode, tmp_path) -> None:
+        stored = tmp_path / "managed.txt"
+        stored.write_text("")
+        # Not a managed suffix — don't touch paths we don't recognise.
+        assert config.ensure_managed_path_matches_mode(str(stored)) is None
+
+    def test_reverse_direction_converts_lua_to_conf(self, hyprlang_mode, tmp_path) -> None:
+        # Symmetric case: user reverts to Hyprlang (deletes hyprland.lua)
+        # while config-path still points at a .lua managed file.
+        stored = tmp_path / "managed.lua"
+        stored.write_text("hl.config({general = {gaps_in = 5}})\n")
+        conf = stored.with_suffix(".conf")
+        result = config.ensure_managed_path_matches_mode(str(stored))
+        assert result == str(conf)
+        assert conf.exists()
+        assert "gaps_in = 5" in conf.read_text()
+
+    def test_expands_tilde_in_stored_path(self, lua_mode, monkeypatch, tmp_path) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        stored = tmp_path / "managed.conf"
+        stored.write_text("")
+        lua = tmp_path / "managed.lua"
+        assert config.ensure_managed_path_matches_mode("~/managed.conf") == str(lua)
+
+    def test_bails_without_repointing_on_conversion_failure(
+        self, lua_mode, tmp_path, monkeypatch
+    ) -> None:
+        # Simulate an unreadable .conf by making atomic_write raise.
+        # Pre-existing user data lives in .conf — better to keep
+        # writing there (broken-but-recoverable) than to silently
+        # repoint at a half-written or empty .lua.
+        stored = tmp_path / "managed.conf"
+        stored.write_text("general {\n  gaps_in = 5\n}\n")
+        lua = stored.with_suffix(".lua")
+
+        def boom(*_args, **_kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("hyprmod.core.config.atomic_write", boom)
+        assert config.ensure_managed_path_matches_mode(str(stored)) is None
+        assert not lua.exists()
+
+
+class TestMigrationActionable:
+    """Shared gate for the Lua-migration banner and menu action.
+
+    Both UI surfaces hide themselves on pre-0.55 Hyprland or when the
+    user is already in Lua mode — the wizard has nothing useful to do.
+    The dismissed-banner flag intentionally lives outside this gate so
+    the menu action stays reachable after the user dismisses the banner.
+    """
+
+    def test_actionable_in_hyprlang_mode_on_055(self, hyprlang_mode) -> None:
+        from hyprmod.ui.lua_migration_controller import _migration_actionable
+
+        assert _migration_actionable("0.55.0") is True
+
+    def test_actionable_in_hyprlang_mode_on_newer(self, hyprlang_mode) -> None:
+        from hyprmod.ui.lua_migration_controller import _migration_actionable
+
+        assert _migration_actionable("0.56.0") is True
+
+    def test_not_actionable_in_lua_mode(self, lua_mode) -> None:
+        from hyprmod.ui.lua_migration_controller import _migration_actionable
+
+        # User is already on Lua — the wizard refuses to run, action
+        # should be greyed out.
+        assert _migration_actionable("0.55.0") is False
+
+    def test_not_actionable_on_pre_055(self, hyprlang_mode) -> None:
+        from hyprmod.ui.lua_migration_controller import _migration_actionable
+
+        assert _migration_actionable("0.54.0") is False
+
+    def test_not_actionable_on_unknown_version(self, hyprlang_mode) -> None:
+        from hyprmod.ui.lua_migration_controller import _migration_actionable
+
+        assert _migration_actionable(None) is False
+        assert _migration_actionable("") is False

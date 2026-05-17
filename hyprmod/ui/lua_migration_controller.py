@@ -33,6 +33,18 @@ _DISMISSED_KEY = "lua-migration-banner-dismissed"
 ACTION_NAME = "migrate-to-lua"
 
 
+def _migration_actionable(version: str | None) -> bool:
+    """Whether a Lua migration can actually produce a useful result now.
+
+    Shared by the banner-visibility and action-enabled predicates: both
+    require a Hyprland new enough to support Lua (``0.55+``) and a user
+    not already on Lua. The dismissed-banner flag is intentionally not
+    folded in here — dismissing the banner is "stop pestering me" and
+    must leave the menu action reachable.
+    """
+    return config.supports_lua_migration(version) and not config.is_lua_mode()
+
+
 class LuaMigrationController:
     """Owns the banner, the action, and the migration completion flow."""
 
@@ -48,6 +60,9 @@ class LuaMigrationController:
         self._settings = settings
         self._show_toast = show_toast
         self._get_version = get_hyprland_version
+        # Populated by :meth:`install_action`; before that, refresh() is
+        # a banner-only update.
+        self._action: Gio.SimpleAction | None = None
 
         self._banner = LuaMigrationBanner(
             on_migrate=self.start_migration,
@@ -66,32 +81,38 @@ class LuaMigrationController:
         """Register the ``migrate-to-lua`` action so menus can reach it."""
         action = Gio.SimpleAction.new(ACTION_NAME, None)
         action.connect("activate", lambda *_: self.start_migration())
+        action.set_enabled(self._action_applicable())
         action_map.add_action(action)
+        self._action = action
 
     def start_migration(self) -> None:
         """Open the migration wizard (singleton)."""
         LuaMigrationDialog.present_singleton(self._window, on_done=self._on_dialog_done)
 
-    def refresh_banner(self) -> None:
-        """Re-evaluate whether the banner should be visible (e.g. after IPC reconnect)."""
+    def refresh(self) -> None:
+        """Re-evaluate banner visibility + action availability (e.g. after IPC reconnect)."""
         self._banner.set_reveal_child(self._should_offer())
+        if self._action is not None:
+            self._action.set_enabled(self._action_applicable())
 
     # ── Internals ─────────────────────────────────────────────────────
 
     def _should_offer(self) -> bool:
         """True on 0.55+ Hyprlang setups the user hasn't dismissed."""
-        if not config.supports_lua_migration(self._get_version()):
-            return False
-        if config.is_lua_mode():
+        if not _migration_actionable(self._get_version()):
             return False
         if self._settings and self._settings.get_boolean(_DISMISSED_KEY):
             return False
         return True
 
+    def _action_applicable(self) -> bool:
+        """True when the menu action should be enabled (ignores dismissal)."""
+        return _migration_actionable(self._get_version())
+
     def _mark_done(self) -> None:
         if self._settings is not None:
             self._settings.set_boolean(_DISMISSED_KEY, True)
-        self.refresh_banner()
+        self.refresh()
 
     def _on_dialog_done(self, result: ConversionResult) -> None:
         # Surface success or per-path errors via a toast so the wizard

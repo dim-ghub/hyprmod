@@ -20,6 +20,7 @@ from hyprland_config import (
     Comment,
     Document,
     Keyword,
+    ParseError,
     atomic_write,
     check_deprecated,
     default_hyprlang_entrypoint,
@@ -196,6 +197,57 @@ def lua_replacement_for_stored_path(stored: str, written: Iterable[Path]) -> str
     if lua_version not in written_paths:
         return None
     return str(lua_version)
+
+
+def ensure_managed_path_matches_mode(stored: str) -> str | None:
+    """Repoint a stored managed-config path to match the active Hyprland mode.
+
+    Hyprmod owns its managed file — when the user switches Hyprland's
+    config language out-of-band (e.g. creates ``hyprland.lua`` while the
+    ``config-path`` GSetting is still pinned to a custom ``.conf``),
+    hyprmod silently writes the wrong format to a file Hyprland never
+    loads. Fixed at startup by swapping the suffix to match
+    :func:`is_lua_mode` and, when no sibling is on disk yet, converting
+    the existing content via a :class:`Document` round-trip so the
+    user's managed settings carry over to the new file.
+
+    Returns the path the caller should persist + use, or ``None`` when
+    no swap is warranted — empty *stored*, non-managed suffix, or the
+    suffix already matches the active mode.
+    """
+    if not stored:
+        return None
+    stored_path = Path(stored).expanduser()
+    if stored_path.suffix.lower() not in _MANAGED_SUFFIXES:
+        return None
+    target_suffix = ".lua" if is_lua_mode() else ".conf"
+    if stored_path.suffix.lower() == target_suffix:
+        return None
+    new_path = stored_path.with_suffix(target_suffix)
+    if not new_path.exists() and stored_path.exists():
+        # Hyprmod-managed content — Document round-trip is safe, no user
+        # authoring at risk. Original is left on disk for the user to
+        # archive or delete on their own terms.
+        try:
+            doc = load_any(stored_path, lenient=True)
+            atomic_write(new_path, serialize_any(doc, new_path))
+        except (OSError, ParseError):
+            # Bail without repointing — keep writing to the original
+            # file (status quo, broken-but-no-data-loss) instead of
+            # silently moving to a half-written or empty new sibling.
+            log.warning(
+                "skip auto-repoint of %s -> %s: conversion failed",
+                stored_path,
+                new_path,
+                exc_info=True,
+            )
+            return None
+        log.info(
+            "auto-converted stale managed file %s -> %s to match active mode",
+            stored_path,
+            new_path,
+        )
+    return str(new_path)
 
 
 # ---------------------------------------------------------------------------

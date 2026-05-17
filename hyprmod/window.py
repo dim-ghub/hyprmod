@@ -141,10 +141,20 @@ class HyprModWindow(Adw.ApplicationWindow):
 
     def _apply_saved_config_path(self):
         """Apply the config-path setting from GSettings on startup."""
-        if self._settings:
-            path = self._settings.get_string("config-path")
-            if path:
-                config.set_managed_path(Path(path))
+        if not self._settings:
+            return
+        path = self._settings.get_string("config-path")
+        if not path:
+            return
+        # User may have switched Hyprland's config language out-of-band
+        # since the path was stored — re-align the suffix (converting
+        # file content if needed) so we don't silently write to a file
+        # the live compositor never loads.
+        repointed = config.ensure_managed_path_matches_mode(path)
+        if repointed is not None:
+            self._settings.set_string("config-path", repointed)
+            path = repointed
+        config.set_managed_path(Path(path))
 
     @property
     def auto_save(self) -> bool:
@@ -431,7 +441,12 @@ class HyprModWindow(Adw.ApplicationWindow):
         menu.append_section(None, prefs_section)
 
         tools_section = Gio.Menu()
-        tools_section.append("Migrate to Lua…", f"win.{LUA_MIGRATION_ACTION}")
+        # ``hidden-when="action-disabled"`` lets GTK hide the item
+        # entirely (not just grey it out) when the controller disables
+        # the action on pre-0.55 Hyprland or once the user is on Lua.
+        migrate_item = Gio.MenuItem.new("Migrate to Lua…", f"win.{LUA_MIGRATION_ACTION}")
+        migrate_item.set_attribute_value("hidden-when", GLib.Variant.new_string("action-disabled"))
+        tools_section.append_item(migrate_item)
         menu.append_section(None, tools_section)
 
         help_section = Gio.Menu()
