@@ -1,5 +1,7 @@
 """Editable card widget for a single monitor."""
 
+from dataclasses import dataclass, replace
+
 from gi.repository import Adw, Gtk
 from hyprland_monitors.monitors import (
     TRANSFORMS,
@@ -22,10 +24,11 @@ VRR_VALUES = [None, "1", "2", "3"]
 CM_MODES = ["Auto", "sRGB", "Adobe", "Wide", "EDID", "HDR", "HDR (EDID)"]
 CM_VALUES = [None, "srgb", "adobe", "wide", "edid", "hdr", "hdredid"]
 
-# Hyprland applies sdrbrightness/sdrsaturation only when an HDR preset is active.
+# Hyprland applies SDR/HDR luminance controls only when HDR output is active.
 _HDR_CM_VALUES = frozenset({"hdr", "hdredid"})
 
-# UI range for the SDR brightness/saturation spinners.
+# UI range for the SDR brightness/saturation sliders.
+SLIDER_VALUE_WIDTH_CHARS = 7
 SDR_VALUE_MIN = 0.0
 SDR_VALUE_MAX = 2.0
 SDR_VALUE_STEP = 0.05
@@ -33,27 +36,198 @@ SDR_VALUE_DIGITS = 2
 SDR_VALUE_DEFAULT = 1.0
 
 
-def _parse_sdr(value: str | None) -> float:
-    """Parse a stored sdr_brightness/sdr_saturation string into the spinner's float."""
+@dataclass(frozen=True)
+class _HdrSliderSpec:
+    field: str
+    title: str
+    subtitle: str
+    default: float
+    minimum: float
+    maximum: float
+    step: float
+    page: float
+    digits: int
+    auto_default: bool = False
+
+
+HDR_SLIDER_SPECS = (
+    # Hyprland's 1.0 sdr_brightness over-brightens SDR-in-HDR;
+    # 0.5 is the community recommended starting point
+    _HdrSliderSpec(
+        field="sdr_brightness",
+        title="SDR Brightness",
+        subtitle="Brightness for SDR content in HDR mode",
+        default=0.5,
+        minimum=SDR_VALUE_MIN,
+        maximum=SDR_VALUE_MAX,
+        step=SDR_VALUE_STEP,
+        page=SDR_VALUE_STEP * 4,
+        digits=SDR_VALUE_DIGITS,
+        auto_default=True,
+    ),
+    _HdrSliderSpec(
+        field="sdr_saturation",
+        title="SDR Saturation",
+        subtitle="Saturation for SDR content in HDR mode",
+        default=SDR_VALUE_DEFAULT,
+        minimum=SDR_VALUE_MIN,
+        maximum=SDR_VALUE_MAX,
+        step=SDR_VALUE_STEP,
+        page=SDR_VALUE_STEP * 4,
+        digits=SDR_VALUE_DIGITS,
+    ),
+    _HdrSliderSpec(
+        field="sdr_min_luminance",
+        title="SDR Min Luminance",
+        subtitle="Minimum luminance for SDR to HDR mapping",
+        default=0.0,
+        minimum=0.0,
+        maximum=1.0,
+        step=0.05,
+        page=0.1,
+        digits=2,
+        auto_default=True,
+    ),
+    _HdrSliderSpec(
+        field="sdr_max_luminance",
+        title="SDR Max Luminance",
+        subtitle="Maximum luminance for SDR content",
+        default=800.0,
+        minimum=0.0,
+        maximum=2000.0,
+        step=10.0,
+        page=100.0,
+        digits=0,
+        auto_default=True,
+    ),
+    _HdrSliderSpec(
+        field="min_luminance",
+        title="HDR Min Luminance",
+        subtitle="Minimum luminance for HDR output",
+        default=0.0,
+        minimum=0.0,
+        maximum=1.0,
+        step=0.05,
+        page=0.1,
+        digits=2,
+        auto_default=True,
+    ),
+    _HdrSliderSpec(
+        field="max_luminance",
+        title="HDR Max Luminance",
+        subtitle="Maximum luminance for HDR output",
+        default=800.0,
+        minimum=0.0,
+        maximum=2000.0,
+        step=10.0,
+        page=100.0,
+        digits=0,
+        auto_default=True,
+    ),
+    _HdrSliderSpec(
+        field="max_avg_luminance",
+        title="Max Avg Luminance",
+        subtitle="Monitor maximum average luminance",
+        default=500.0,
+        minimum=0.0,
+        maximum=2000.0,
+        step=10.0,
+        page=100.0,
+        digits=0,
+        auto_default=True,
+    ),
+)
+HDR_SLIDER_FIELDS = tuple(spec.field for spec in HDR_SLIDER_SPECS)
+HDR_SLIDER_SPEC_BY_FIELD = {spec.field: spec for spec in HDR_SLIDER_SPECS}
+
+# EDID-derived caps that supply the "Auto" slider position per HDR luminance field.
+# Both SDR and HDR variants of min/max share the same EDID source — Hyprland reads
+# one panel mastering range and uses it for both SDR-to-HDR mapping and HDR output.
+# Fields not in this mapping use their static spec.default as the Auto position.
+_CAPS_DEFAULT_SOURCE: dict[str, str] = {
+    "sdr_min_luminance": "min_luminance",
+    "sdr_max_luminance": "max_luminance",
+    "min_luminance": "min_luminance",
+    "max_luminance": "max_luminance",
+    "max_avg_luminance": "max_avg_luminance",
+}
+
+
+def _resolve_hdr_specs(caps: dict) -> tuple[_HdrSliderSpec, ...]:
+    """Return per-monitor specs, substituting EDID values for the Auto slider position.
+
+    For each slider field that has a ``_CAPS_DEFAULT_SOURCE`` entry, if the caps
+    dict carries a real (non-None) value, the returned spec has ``default``
+    replaced with it — so the slider's Auto position lines up with the panel's
+    EDID-reported mastering luminance. Fields without caps coverage, or fields
+    whose caps value is ``None``, fall through to the static template default.
+    """
+    resolved: list[_HdrSliderSpec] = []
+    for template in HDR_SLIDER_SPECS:
+        caps_field = _CAPS_DEFAULT_SOURCE.get(template.field)
+        edid_value = caps.get(caps_field) if caps_field else None
+        if edid_value is not None:
+            resolved.append(replace(template, default=float(edid_value)))
+        else:
+            resolved.append(template)
+    return tuple(resolved)
+
+
+LUMINANCE_PAIRS: tuple[tuple[str, str], ...] = (
+    ("sdr_min_luminance", "min_luminance"),
+    ("sdr_max_luminance", "max_luminance"),
+)
+LOCKED_LUMINANCE_PEER: dict[str, str] = {
+    field: peer for pair in LUMINANCE_PAIRS for field, peer in (pair, pair[::-1])
+}
+LOCKED_LUMINANCE_FIELD_SET = frozenset(LOCKED_LUMINANCE_PEER)
+HDR_LOCKED_ICON = "changes-prevent-symbolic"
+HDR_UNLOCKED_ICON = "changes-allow-symbolic"
+
+
+def _parse_hdr_value(value: str | None, default: float) -> float:
+    """Parse a stored HDR numeric value for a slider."""
     if value is None:
-        return SDR_VALUE_DEFAULT
+        return default
     try:
         return float(value)
     except ValueError:
-        return SDR_VALUE_DEFAULT
+        return default
 
 
-def _format_sdr(value: float) -> str | None:
-    """Format a spinner value back into config-line form, or None at the default.
-
-    Keeps at least one integer digit so ``0`` renders as ``"0"`` rather than ``""``.
-    """
-    # Epsilon handles FP jitter from the spinner; the user picks exact 1.0 to reset.
-    if abs(value - SDR_VALUE_DEFAULT) < 1e-3:
-        return None
-    int_part, _, frac = f"{value:.2f}".partition(".")
+def _format_hdr_raw_value(value: float, digits: int) -> str:
+    """Format a float as a config-line value at slider precision (no None special-case)."""
+    int_part, _, frac = f"{value:.{digits}f}".partition(".")
     frac = frac.rstrip("0")
     return f"{int_part}.{frac}" if frac else int_part
+
+
+def _format_hdr_value(
+    value: float, default: float, digits: int, auto_default: bool = False
+) -> str | None:
+    """Format a slider value back into config-line form.
+
+    For fields whose ``spec.default`` is a real value worth writing to disk
+    (``auto_default=True`` — luminance fields where ``spec.default`` is the
+    panel's EDID mastering luminance), always emits the formatted value. For
+    fields whose ``spec.default`` is Hyprland's own no-override default
+    (``auto_default=False`` — ``sdrbrightness`` / ``sdrsaturation`` where the
+    default of ``1`` is what Hyprland uses anyway), returns ``None`` at the
+    default so the line gets omitted from the saved config.
+
+    The live ``hl.monitor()`` apply emits explicit defaults for the
+    ``auto_default=False`` fields via ``explicit_hdr_defaults=True`` in
+    hyprland-state, which handles the additive-omission reset there.
+    """
+    if not auto_default and abs(value - default) < 1e-3:
+        # Epsilon handles FP jitter from the slider; picking the exact default resets.
+        return None
+    return _format_hdr_raw_value(value, digits)
+
+
+def _format_hdr_display_value(value: float, spec: _HdrSliderSpec) -> str:
+    """Format the visible slider value label at slider precision."""
+    return f"{value:.{spec.digits}f}"
 
 
 class MonitorCard(Gtk.Box):
@@ -78,6 +252,11 @@ class MonitorCard(Gtk.Box):
         self._caps = caps or {"hdr": False, "ten_bit": False, "vrr": False}
         self._mirror_choices = mirror_choices or []
         self._desc_unique = desc_unique
+        # Per-monitor HDR specs with EDID-derived Auto positions substituted in
+        # where the panel reports mastering luminance. Falls back to the static
+        # template defaults for monitors without HDR caps or EDID coverage.
+        self._hdr_specs = _resolve_hdr_specs(self._caps)
+        self._hdr_specs_by_field: dict[str, _HdrSliderSpec] = {s.field: s for s in self._hdr_specs}
 
         connector = monitor.name
         make = monitor.make
@@ -311,10 +490,8 @@ class MonitorCard(Gtk.Box):
             self._on_cm_changed,
             lambda: self._discard_fields("color_management"),
         )
-        # SDR brightness/saturation only affect SDR content while an HDR preset is
-        # active; we build a single row with two inline spinboxes (mirroring the
-        # Position row) and toggle visibility based on the current cm value.
-        self._sdr_row = self._build_sdr_row(monitor)
+        self._hdr_reset_row = self._build_hdr_reset_row()
+        self._hdr_slider_rows = self._build_hdr_slider_rows(monitor)
         self._bitdepth_row = self._build_extra_combo(
             "ten_bit",
             "Bit Depth",
@@ -335,10 +512,16 @@ class MonitorCard(Gtk.Box):
             self._on_vrr_changed,
             lambda: self._discard_fields("vrr"),
         )
-        for row in (self._cm_row, self._sdr_row, self._bitdepth_row, self._vrr_row):
+        for row in (
+            self._cm_row,
+            self._hdr_reset_row,
+            *self._hdr_slider_rows,
+            self._bitdepth_row,
+            self._vrr_row,
+        ):
             if row is not None:
                 self._advanced_expander.add_row(row)
-        self._refresh_sdr_visibility()
+        self._refresh_hdr_slider_visibility()
 
         self.append(advanced_group)
 
@@ -359,10 +542,11 @@ class MonitorCard(Gtk.Box):
             self._pos_row,
             self._mirror_row,
             self._cm_row,
-            self._sdr_row,
+            self._hdr_reset_row,
             self._bitdepth_row,
             self._vrr_row,
             self._identify_row,
+            *self._hdr_slider_rows,
         ):
             if row is not None:
                 self._searchable.append((row.get_title(), row.get_subtitle() or ""))
@@ -440,51 +624,91 @@ class MonitorCard(Gtk.Box):
         self._attach_row_actions(row, on_discard)
         return row
 
-    def _build_sdr_row(self, monitor: MonitorState) -> Adw.ActionRow | None:
-        """Build a single SDR row with inline brightness/saturation spinboxes."""
+    def _build_hdr_reset_row(self) -> Adw.ActionRow | None:
         if not self._caps.get("hdr"):
-            self._sdr_brightness = None
-            self._sdr_saturation = None
             return None
 
-        self._sdr_brightness = self._make_sdr_spin(_parse_sdr(monitor.sdr_brightness))
-        self._sdr_saturation = self._make_sdr_spin(_parse_sdr(monitor.sdr_saturation))
-
-        row = Adw.ActionRow(
-            title="SDR",
-            subtitle="Brightness and saturation for SDR content in HDR mode",
-        )
-        for label_text, widget, margin_start, margin_end in [
-            ("Brightness", self._sdr_brightness, 0, 4),
-            ("Saturation", self._sdr_saturation, 12, 4),
-        ]:
-            lbl = Gtk.Label(label=label_text)
-            lbl.add_css_class("dim-label")
-            lbl.set_valign(Gtk.Align.CENTER)
-            lbl.set_margin_start(margin_start)
-            lbl.set_margin_end(margin_end)
-            row.add_suffix(lbl)
-            row.add_suffix(widget)
-
-        self._signals.connect(self._sdr_brightness, "value-changed", self._on_sdr_changed)
-        self._signals.connect(self._sdr_saturation, "value-changed", self._on_sdr_changed)
-        self._attach_row_actions(
-            row, lambda: self._discard_fields("sdr_brightness", "sdr_saturation")
-        )
+        row = Adw.ActionRow(title="Safe Defaults", subtitle="Restore conservative HDR values")
+        button = Gtk.Button(icon_name="edit-undo-symbolic")
+        button.set_valign(Gtk.Align.CENTER)
+        button.set_tooltip_text("Apply safe defaults")
+        button.add_css_class("flat")
+        row.add_suffix(button)
+        self._signals.connect(button, "clicked", self._on_hdr_reset_clicked)
         return row
 
-    def _make_sdr_spin(self, value: float) -> Gtk.SpinButton:
-        return Gtk.SpinButton(
+    def _build_hdr_slider_rows(self, monitor: MonitorState) -> list[Adw.ActionRow]:
+        """Build one slider row for each HDR-related monitor value."""
+        self._hdr_sliders: dict[str, Gtk.Scale] = {}
+        self._hdr_value_labels: dict[str, Gtk.Label] = {}
+        self._hdr_locked_fields: set[str] = set()
+        self._hdr_lock_buttons: dict[str, Gtk.ToggleButton] = {}
+        self._hdr_lock_icons: dict[str, Gtk.Image] = {}
+        if not self._caps.get("hdr"):
+            return []
+
+        rows: list[Adw.ActionRow] = []
+        for spec in self._hdr_specs:
+            value = _parse_hdr_value(getattr(monitor, spec.field), spec.default)
+            row = Adw.ActionRow(title=spec.title, subtitle=spec.subtitle)
+            scale = self._make_hdr_slider(spec, value)
+            value_label = Gtk.Label(
+                label=_format_hdr_display_value(value, spec),
+                width_chars=SLIDER_VALUE_WIDTH_CHARS,
+                xalign=1,
+            )
+            value_label.add_css_class("dim-label")
+            value_label.set_valign(Gtk.Align.CENTER)
+            lock_button = self._build_hdr_lock_button(spec)
+            if lock_button is not None:
+                row.add_suffix(lock_button)
+            row.add_suffix(scale)
+            row.add_suffix(value_label)
+
+            self._hdr_sliders[spec.field] = scale
+            self._hdr_value_labels[spec.field] = value_label
+            self._signals.connect(scale, "value-changed", self._on_hdr_slider_changed, spec)
+            self._attach_row_actions(row, lambda f=spec.field: self._discard_fields(f))
+            rows.append(row)
+        return rows
+
+    def _build_hdr_lock_button(self, spec: _HdrSliderSpec) -> Gtk.ToggleButton | None:
+        if spec.field not in LOCKED_LUMINANCE_FIELD_SET:
+            return None
+
+        peer = self._hdr_specs_by_field[LOCKED_LUMINANCE_PEER[spec.field]]
+        icon = Gtk.Image.new_from_icon_name(HDR_UNLOCKED_ICON)
+        button = Gtk.ToggleButton()
+        button.set_child(icon)
+        button.set_valign(Gtk.Align.CENTER)
+        button.set_active(False)
+        button.set_tooltip_text(f"Lock {spec.title} with {peer.title}")
+        button.add_css_class("flat")
+        self._hdr_lock_buttons[spec.field] = button
+        self._hdr_lock_icons[spec.field] = icon
+        self._signals.connect(button, "toggled", self._on_hdr_lock_toggled, spec.field)
+        return button
+
+    def _make_hdr_slider(self, spec: _HdrSliderSpec, value: float) -> Gtk.Scale:
+        scale = Gtk.Scale(
+            orientation=Gtk.Orientation.HORIZONTAL,
             adjustment=Gtk.Adjustment(
                 value=value,
-                lower=SDR_VALUE_MIN,
-                upper=SDR_VALUE_MAX,
-                step_increment=SDR_VALUE_STEP,
-                page_increment=SDR_VALUE_STEP * 4,
+                lower=spec.minimum,
+                upper=spec.maximum,
+                step_increment=spec.step,
+                page_increment=spec.page,
             ),
-            digits=SDR_VALUE_DIGITS,
-            valign=Gtk.Align.CENTER,
         )
+        scale.set_digits(spec.digits)
+        scale.set_draw_value(False)
+        scale.set_size_request(220, -1)
+        scale.set_valign(Gtk.Align.CENTER)
+        # Tick mark at the recommended default — Hyprland's 1.0 ideal for SDR
+        # brightness/saturation, the panel's EDID position for the luminance
+        # sliders. Visually anchors the "Auto" label.
+        scale.add_mark(spec.default, Gtk.PositionType.BOTTOM, None)
+        return scale
 
     def _is_hdr_cm_active(self) -> bool:
         """Whether the current cm preset is one that makes sdr* values effective."""
@@ -495,9 +719,12 @@ class MonitorCard(Gtk.Box):
             return False
         return CM_VALUES[idx] in _HDR_CM_VALUES
 
-    def _refresh_sdr_visibility(self):
-        if self._sdr_row is not None:
-            self._sdr_row.set_visible(self._is_hdr_cm_active())
+    def _refresh_hdr_slider_visibility(self):
+        visible = self._is_hdr_cm_active()
+        if self._hdr_reset_row is not None:
+            self._hdr_reset_row.set_visible(visible)
+        for row in self._hdr_slider_rows:
+            row.set_visible(visible)
 
     def _attach_row_actions(self, row: Adw.ActionRow | Adw.ComboRow, discard_handler):
         """Attach a RowActions strip (discard only, no per-row remove)."""
@@ -547,11 +774,16 @@ class MonitorCard(Gtk.Box):
             if self._cm_row:
                 c = mon.color_management
                 self._cm_row.set_selected(CM_VALUES.index(c) if c in CM_VALUES else 0)
-            if self._sdr_brightness is not None:
-                self._sdr_brightness.set_value(_parse_sdr(mon.sdr_brightness))
-            if self._sdr_saturation is not None:
-                self._sdr_saturation.set_value(_parse_sdr(mon.sdr_saturation))
-            self._refresh_sdr_visibility()
+            for spec in self._hdr_specs:
+                slider = self._hdr_sliders.get(spec.field)
+                if slider is None:
+                    continue
+                value = _parse_hdr_value(getattr(mon, spec.field), spec.default)
+                slider.set_value(value)
+                label = self._hdr_value_labels.get(spec.field)
+                if label is not None:
+                    label.set_label(_format_hdr_display_value(value, spec))
+            self._refresh_hdr_slider_visibility()
 
             mirror_idx = 0
             if mon.mirror_of in self._mirror_values:
@@ -593,10 +825,10 @@ class MonitorCard(Gtk.Box):
                 self._pos_row,
                 self._mirror_row,
                 self._cm_row,
-                self._sdr_row,
                 self._bitdepth_row,
                 self._vrr_row,
                 self._identify_row,
+                *self._hdr_slider_rows,
             ):
                 if row is not None:
                     self._update_row(row, all_dirty, managed)
@@ -614,11 +846,6 @@ class MonitorCard(Gtk.Box):
                 (self._pos_row, mon.x != baseline.x or mon.y != baseline.y),
                 (self._mirror_row, mon.mirror_of != baseline.mirror_of),
                 (self._cm_row, mon.color_management != baseline.color_management),
-                (
-                    self._sdr_row,
-                    mon.sdr_brightness != baseline.sdr_brightness
-                    or mon.sdr_saturation != baseline.sdr_saturation,
-                ),
                 (self._bitdepth_row, mon.bit_depth != baseline.bit_depth),
                 (self._vrr_row, mon.vrr != baseline.vrr),
                 (
@@ -626,6 +853,11 @@ class MonitorCard(Gtk.Box):
                     mon.identify_by_description != baseline.identify_by_description,
                 ),
             ]
+            # Rows are built only when the monitor reports HDR capability;
+            # skip when absent so the strict zip stays meaningful for the HDR path.
+            if self._hdr_slider_rows:
+                for row, field in zip(self._hdr_slider_rows, HDR_SLIDER_FIELDS, strict=True):
+                    fields.append((row, getattr(mon, field) != getattr(baseline, field)))
             for row, dirty in fields:
                 if row is None:
                     continue
@@ -645,6 +877,56 @@ class MonitorCard(Gtk.Box):
                 is_saved=managed,
                 show_reset=False,
             )
+
+    def _set_pair_lock(self, field: str, peer: str, active: bool):
+        """Update lock state for one luminance pair and its two button icons."""
+        if active:
+            self._hdr_locked_fields.update((field, peer))
+        else:
+            self._hdr_locked_fields.difference_update((field, peer))
+        icon_name = HDR_LOCKED_ICON if active else HDR_UNLOCKED_ICON
+        with self._signals:
+            for f in (field, peer):
+                button = self._hdr_lock_buttons.get(f)
+                if button is not None:
+                    button.set_active(active)
+                icon = self._hdr_lock_icons.get(f)
+                if icon is not None:
+                    icon.set_from_icon_name(icon_name)
+
+    def _format_hdr_field_value(self, field: str, value: float) -> str | None:
+        """Return the config-line value for ``field`` at ``value`` (or None to omit).
+
+        Passing ``spec.default`` as ``value`` produces the safe-reset value:
+        the explicit EDID luminance for ``auto_default=True`` fields, and
+        ``None`` for fields whose Hyprland no-override default is correct.
+        """
+        spec = self._hdr_specs_by_field[field]
+        return _format_hdr_value(value, spec.default, spec.digits, spec.auto_default)
+
+    def _default_hdr_values(self) -> dict[str, str | None]:
+        return {
+            field: self._format_hdr_field_value(field, self._hdr_specs_by_field[field].default)
+            for field in HDR_SLIDER_FIELDS
+        }
+
+    def _missing_hdr_default_values(self) -> dict[str, str | None]:
+        return {
+            field: self._format_hdr_field_value(field, self._hdr_specs_by_field[field].default)
+            for field in HDR_SLIDER_FIELDS
+            if getattr(self._monitor, field) is None
+        }
+
+    def _set_hdr_slider_value(self, field: str, value: float) -> float:
+        spec = self._hdr_specs_by_field[field]
+        clamped = max(spec.minimum, min(spec.maximum, value))
+        slider = self._hdr_sliders.get(field)
+        if slider is not None and abs(slider.get_value() - clamped) > 1e-6:
+            slider.set_value(clamped)
+        label = self._hdr_value_labels.get(field)
+        if label is not None:
+            label.set_label(_format_hdr_display_value(clamped, spec))
+        return clamped
 
     # -- Signal handlers --
 
@@ -678,17 +960,53 @@ class MonitorCard(Gtk.Box):
 
     def _on_cm_changed(self, row: Adw.ComboRow, *_args):
         idx = row.get_selected()
-        self._emit({"color_management": CM_VALUES[idx] if idx < len(CM_VALUES) else None})
-        self._refresh_sdr_visibility()
+        value = CM_VALUES[idx] if idx < len(CM_VALUES) else None
+        new_vals = {"color_management": value}
+        if value in _HDR_CM_VALUES:
+            new_vals.update(self._missing_hdr_default_values())
+        self._emit(new_vals)
+        self._refresh_hdr_slider_visibility()
 
-    def _on_sdr_changed(self, *_args):
-        new_vals: dict = {}
-        if self._sdr_brightness is not None:
-            new_vals["sdr_brightness"] = _format_sdr(self._sdr_brightness.get_value())
-        if self._sdr_saturation is not None:
-            new_vals["sdr_saturation"] = _format_sdr(self._sdr_saturation.get_value())
-        if new_vals:
-            self._emit(new_vals)
+    def _on_hdr_lock_toggled(self, button: Gtk.ToggleButton, field: str):
+        """Sync the clicked SDR/HDR luminance pair when its lock is enabled.
+
+        Each pair (min/sdr_min and max/sdr_max) has its own lock state, so
+        toggling one pair leaves the other alone. The clicked row is the
+        source so the value the user just set sticks; the peer row follows.
+        """
+        active = button.get_active()
+        peer = LOCKED_LUMINANCE_PEER[field]
+        self._set_pair_lock(field, peer, active)
+        if not active:
+            return
+
+        source_slider = self._hdr_sliders.get(field)
+        if source_slider is None:
+            return
+        with self._signals:
+            peer_value = self._set_hdr_slider_value(peer, source_slider.get_value())
+        self._emit({peer: self._format_hdr_field_value(peer, peer_value)})
+
+    def _on_hdr_reset_clicked(self, *_args):
+        with self._signals:
+            for spec in self._hdr_specs:
+                self._set_hdr_slider_value(spec.field, spec.default)
+        self._emit(self._default_hdr_values())
+
+    def _on_hdr_slider_changed(self, scale: Gtk.Scale, spec: _HdrSliderSpec):
+        value = scale.get_value()
+        self._set_hdr_slider_value(spec.field, value)
+        new_vals = {
+            spec.field: _format_hdr_value(value, spec.default, spec.digits, spec.auto_default)
+        }
+
+        peer_field = LOCKED_LUMINANCE_PEER.get(spec.field)
+        if peer_field is not None and spec.field in self._hdr_locked_fields:
+            with self._signals:
+                peer_value = self._set_hdr_slider_value(peer_field, value)
+            new_vals[peer_field] = self._format_hdr_field_value(peer_field, peer_value)
+
+        self._emit(new_vals)
 
     def _on_mirror_changed(self, *_args):
         idx = self._mirror_row.get_selected()

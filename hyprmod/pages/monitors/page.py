@@ -33,12 +33,19 @@ from hyprmod.ui.icons import MONITORS_ICON
 from hyprmod.ui.monitor_preview import MonitorLayoutPreview
 from hyprmod.ui.timer import Timer
 
+# Fields cleared on managed monitors that aren't present in the saved config.
+# Kept aligned with hyprland-monitors's monitor-line serialization.
 _EXTRA_FIELDS = (
     "bit_depth",
     "vrr",
     "color_management",
     "sdr_brightness",
     "sdr_saturation",
+    "sdr_min_luminance",
+    "sdr_max_luminance",
+    "min_luminance",
+    "max_luminance",
+    "max_avg_luminance",
     "mirror_of",
 )
 
@@ -57,6 +64,13 @@ class MonitorsPage(SectionPage):
         "bit_depth",
         "vrr",
         "color_management",
+        "sdr_brightness",
+        "sdr_saturation",
+        "sdr_min_luminance",
+        "sdr_max_luminance",
+        "min_luminance",
+        "max_luminance",
+        "max_avg_luminance",
         "mirror_of",
         "disabled",
         "identify_by_description",
