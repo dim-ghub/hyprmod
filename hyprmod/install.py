@@ -14,8 +14,6 @@ always reinstalls to ``$XDG_DATA_HOME`` (useful when bundled assets
 update with a new release).
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 from pathlib import Path
@@ -23,6 +21,7 @@ from pathlib import Path
 from gi.repository import Gio
 
 from hyprmod.constants import APPLICATION_ID
+from hyprmod.core.config import display_path
 from hyprmod.data import bundled_data_dir
 
 DESKTOP_FILE = f"{APPLICATION_ID}.desktop"
@@ -35,15 +34,6 @@ def _xdg_data_home() -> Path:
     if raw:
         return Path(raw)
     return Path.home() / ".local" / "share"
-
-
-def _shortpath(p: Path) -> str:
-    """Replace the user's home prefix with ``~`` for display."""
-    home = Path.home()
-    try:
-        return f"~/{p.relative_to(home)}"
-    except ValueError:
-        return str(p)
 
 
 def _user_dest_map() -> list[tuple[Path, Path]]:
@@ -82,7 +72,7 @@ def install_user_files(*, quiet: bool = False) -> list[Path]:
         shutil.copy2(src, dest)
         placed.append(dest)
         if not quiet:
-            print(f" + {_shortpath(dest)}")
+            print(f" + {display_path(dest)}")
     return placed
 
 
@@ -100,7 +90,7 @@ def uninstall_user_files(*, quiet: bool = False) -> list[Path]:
             dest.unlink()
             removed.append(dest)
             if not quiet:
-                print(f" - {_shortpath(dest)}")
+                print(f" - {display_path(dest)}")
     return removed
 
 

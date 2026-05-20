@@ -12,6 +12,7 @@ from hyprland_state import ANIM_LOOKUP, HyprlandState
 
 from hyprmod.constants import APPLICATION_ID
 from hyprmod.core import config, profiles, schema
+from hyprmod.core.bug_report import build_bug_report_url
 from hyprmod.core.state import AppState
 from hyprmod.core.undo import OptionChange, UndoManager
 from hyprmod.data import bundled_data_dir
@@ -257,6 +258,11 @@ class HyprModWindow(Adw.ApplicationWindow):
         about_action.connect("activate", self._on_show_about)
         self.add_action(about_action)
 
+        # Report-a-bug action: opens a prefilled GitHub issue in the browser.
+        report_action = Gio.SimpleAction.new("report-bug", None)
+        report_action.connect("activate", self._on_report_bug)
+        self.add_action(report_action)
+
         # Lua migration: owns its banner, action, dialog, completion flow.
         self._lua_migration = LuaMigrationController(
             self,
@@ -479,6 +485,7 @@ class HyprModWindow(Adw.ApplicationWindow):
 
         help_section = Gio.Menu()
         help_section.append("Keyboard Shortcuts", "win.show-help-overlay")
+        help_section.append("Report a bug", "win.report-bug")
         help_section.append("About HyprMod", "win.show-about")
         menu.append_section(None, help_section)
 
@@ -817,6 +824,10 @@ class HyprModWindow(Adw.ApplicationWindow):
         """Show the About dialog."""
         build_about_dialog(running_hyprland_version=self.hypr.version).present(self)
 
+    def _on_report_bug(self, *_args):
+        """Open a prefilled GitHub issue in the browser (Help → Report a bug)."""
+        self._open_bug_report()
+
     # -- Search --
 
     def _on_show_search(self, *_args):
@@ -957,7 +968,7 @@ class HyprModWindow(Adw.ApplicationWindow):
                 opt_row.flash_error()
                 if state:
                     opt_row.set_value_silent(state.live_value)
-            self.show_toast(f"Failed to set {key} — {e}", timeout=5)
+            self.show_bug_toast(f"Failed to set {key} — {e}", detail=str(e), timeout=5)
             return
         if entry is None and opt_row:
             opt_row.flash_error()
@@ -1271,10 +1282,42 @@ class HyprModWindow(Adw.ApplicationWindow):
         """Add a pre-built toast to the overlay."""
         self._toast_overlay.add_toast(toast)
 
-    def show_toast(self, message: str, timeout: int = 2):
-        """Show a transient toast notification."""
+    def show_toast(self, message: str, timeout: int = 2, *, copy: bool = False):
+        """Show a transient toast. With *copy*, add a Copy button for *message*."""
         toast = Adw.Toast(title=message, timeout=timeout)
+        if copy:
+            toast.set_button_label("Copy")
+            toast.connect("button-clicked", lambda _t: self.get_clipboard().set(message))
         self.add_toast(toast)
+
+    def show_bug_toast(self, message: str, *, detail: str | None = None, timeout: int = 5) -> None:
+        """Toast with a Report button for errors that likely indicate a hyprmod bug.
+
+        Use at sites where the failure path is internal (caught ``except
+        Exception``, an IPC roundtrip we initiated, a post-condition that
+        the user can't influence) rather than user input that didn't
+        validate. The Report button opens a prefilled GitHub issue with
+        *message* above the environment block.
+
+        *message* is shown in the toast and forms the issue body. *detail*,
+        when given (typically ``str(exc)``), becomes the issue title tagged
+        ``[Bug]``; without it the title falls back to *message*.
+        """
+        toast = Adw.Toast(title=message, timeout=timeout)
+        toast.set_button_label("Report")
+        toast.connect(
+            "button-clicked",
+            lambda _t: self._open_bug_report(title=detail or message, body_extra=message),
+        )
+        self.add_toast(toast)
+
+    def _open_bug_report(self, *, title: str = "", body_extra: str = "") -> None:
+        url = build_bug_report_url(
+            title=title,
+            body_extra=body_extra,
+            running_hyprland_version=self.hypr.version,
+        )
+        Gtk.UriLauncher.new(url).launch(self, None, None)
 
     def _on_save(self, *_args):
         # Save now keeps the active profile in sync internally; no need

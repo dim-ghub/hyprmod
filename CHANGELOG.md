@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deprecation assistant — detect and migrate deprecated Hyprland syntax with explicit user confirmation and timestamped backups
 - Convenience installer (`install.sh`) and `hyprmod --install` / `--uninstall` flags — `pipx`/`uv tool` installs now register a desktop launcher entry and icon under `$XDG_DATA_HOME`, with first-launch self-registration as a fallback
 - Optional Name and Enabled fields in the window and layer rule dialogs for Hyprland's block-form / Lua named rules
+- "Report a bug" link in Help menu and error toasts — opens prefilled GitHub issues with HyprMod version, Hyprland version, config language, and install method
 
 ### Changed
 

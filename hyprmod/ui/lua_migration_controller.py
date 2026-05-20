@@ -123,7 +123,7 @@ class LuaMigrationController:
             message = "Migration finished with errors: " + "; ".join(shown)
             if more > 0:
                 message += f" (+{more} more)"
-            self._show_toast(message)
+            self._show_toast(message, copy=True)
         elif result.skipped:
             self._show_toast(
                 f"Skipped {len(result.skipped)} existing .lua "

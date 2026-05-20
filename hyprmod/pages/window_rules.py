@@ -327,7 +327,7 @@ class WindowRulesPage(SavedListSectionPage[WindowRule]):
         if not rule.enabled:
             return False
         ok = try_with_toast(
-            self._window.show_toast,
+            self._window.show_bug_toast,
             "Window rule failed",
             lambda: self._window.hypr.keyword(config.KEYWORD_WINDOWRULE, rule.body()),
             catch=HyprlandError,
@@ -390,8 +390,9 @@ class WindowRulesPage(SavedListSectionPage[WindowRule]):
             return
         applied, error = self._foreach_matching_window(rule, existing_window_dispatchers)
         if error is not None:
-            self._window.show_toast(
+            self._window.show_bug_toast(
                 f"Couldn't apply to existing windows — {error}",
+                detail=str(error),
                 timeout=5,
             )
         elif applied > 0:
@@ -416,8 +417,9 @@ class WindowRulesPage(SavedListSectionPage[WindowRule]):
             return
         _applied, error = self._foreach_matching_window(rule, existing_window_revert_dispatchers)
         if error is not None:
-            self._window.show_toast(
+            self._window.show_bug_toast(
                 f"Couldn't revert on existing windows — {error}",
+                detail=str(error),
                 timeout=5,
             )
 

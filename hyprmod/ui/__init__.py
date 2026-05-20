@@ -2,7 +2,6 @@
 
 import functools
 from collections.abc import Callable
-from pathlib import Path
 from typing import Protocol, cast
 
 from gi.repository import Adw, Gdk, Gtk, Pango
@@ -17,11 +16,22 @@ class ShowToast(Protocol):
     """Callable shape of :meth:`HyprModWindow.show_toast`.
 
     Captured as a Protocol so helpers that take a toast function as a
-    dependency (``try_with_toast``, controller injections) keep a typed
-    contract instead of falling back to ``Callable[..., object]``.
+    dependency (controller injections) keep a typed contract instead of
+    falling back to ``Callable[..., object]``.
     """
 
-    def __call__(self, message: str, timeout: int = ...) -> None: ...
+    def __call__(self, message: str, timeout: int = ..., *, copy: bool = ...) -> None: ...
+
+
+class ShowBugToast(Protocol):
+    """Callable shape of :meth:`HyprModWindow.show_bug_toast`.
+
+    Separate from :class:`ShowToast` because the bug variant has no
+    ``copy`` knob (the Report button replaces it), carries a ``detail``
+    string for the issue title, and takes ``timeout`` keyword-only.
+    """
+
+    def __call__(self, message: str, *, detail: str | None = ..., timeout: int = ...) -> None: ...
 
 
 # Fallback accent colors used in Cairo drawing (bezier canvas, monitor preview).
@@ -118,7 +128,7 @@ def confirm(
 
 
 def try_with_toast(
-    show_toast: ShowToast,
+    show_bug_toast: ShowBugToast,
     error_prefix: str,
     action: Callable[[], object],
     *,
@@ -133,20 +143,19 @@ def try_with_toast(
             self._window.hypr.keyword(...)
             return True
         except HyprlandError as e:
-            self._window.show_toast(f"... — {e}", timeout=5)
+            self._window.show_bug_toast(f"... — {e}", timeout=5)
             return False
 
-    *show_toast* is the bound method to call (typically
-    ``window.show_toast``); the helper passes the formatted message
-    as the first positional arg and ``timeout`` as a keyword arg, so
-    it works with the project's ``show_toast(message, timeout=...)``
-    signature. *catch* defaults to ``Exception`` but should usually
+    *show_bug_toast* is the bound method to call (typically
+    ``window.show_bug_toast``); errors caught here are by construction
+    IPC roundtrips hyprmod initiated, so the Report button is the right
+    affordance. *catch* defaults to ``Exception`` but should usually
     be narrowed to the IPC-specific class (``HyprlandError``).
     """
     try:
         action()
     except catch as e:
-        show_toast(f"{error_prefix} — {e}", timeout=timeout)
+        show_bug_toast(f"{error_prefix} — {e}", detail=str(e), timeout=timeout)
         return False
     return True
 
@@ -228,16 +237,3 @@ def make_inline_hint(
     label.add_css_class("caption")
     box.append(label)
     return box
-
-
-def display_path(path: Path) -> str:
-    """Return *path* as a string with ``$HOME`` collapsed to ``~``.
-
-    Used in user-facing UI strings (source-line previews, external-
-    rule provenance) where absolute home paths are noise. Falls back
-    to the absolute path verbatim when *path* is outside ``$HOME``.
-    """
-    try:
-        return "~/" + str(path.relative_to(Path.home()))
-    except ValueError:
-        return str(path)

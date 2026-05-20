@@ -724,6 +724,9 @@ class TestBindEditDialog:
             def show_toast(self, *a, **k):
                 pass
 
+            def show_bug_toast(self, *a, **k):
+                pass
+
             def get_root(self):
                 return None
 

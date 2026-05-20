@@ -507,7 +507,7 @@ class BindEditDialog(Adw.Dialog):
             self._window.hypr.dispatch("submap", "hyprmod_capture")
         except HyprlandError as e:
             log.warning("entering capture submap failed; aborting capture: %s", e)
-            self._window.show_toast(f"Couldn't start capture — {e}", timeout=5)
+            self._window.show_bug_toast(f"Couldn't start capture — {e}", detail=str(e), timeout=5)
             self._capturing = False
             self._capture_btn.set_label("Record")
             self._capture_btn.remove_css_class("destructive-action")
@@ -555,8 +555,9 @@ class BindEditDialog(Adw.Dialog):
             # button revert but doesn't realise their compositor is still
             # in the capture submap (every keypress would no-op until the
             # dialog closes and the retry fires).
-            self._window.show_toast(
+            self._window.show_bug_toast(
                 f"Couldn't leave capture mode — {e}. Close this dialog to retry.",
+                detail=str(e),
                 timeout=5,
             )
             return

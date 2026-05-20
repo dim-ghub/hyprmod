@@ -107,7 +107,7 @@ class SettingsPage:
         try:
             migrate_config_path(old_path, new_path)
         except OSError as e:
-            self._window.show_toast(f"Cannot move config — {e.strerror}", timeout=5)
+            self._window.show_toast(f"Cannot move config — {e.strerror}", timeout=5, copy=True)
             return
 
         self._window.config_path = str(new_path)

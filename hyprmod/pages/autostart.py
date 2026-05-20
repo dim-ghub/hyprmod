@@ -420,7 +420,7 @@ class AutostartPage(DragDropReorderMixin[ExecData]):
         try:
             tokens = shlex.split(cmd)
         except ValueError as e:
-            self._window.show_toast(f"Couldn't parse command: {e}", timeout=4)
+            self._window.show_toast(f"Couldn't parse command: {e}", timeout=4, copy=True)
             return
         try:
             subprocess.Popen(  # noqa: S603 — user-supplied autostart command, by design
@@ -430,7 +430,7 @@ class AutostartPage(DragDropReorderMixin[ExecData]):
                 stderr=subprocess.DEVNULL,
             )
         except (OSError, FileNotFoundError) as e:
-            self._window.show_toast(f"Failed to run: {e}", timeout=5)
+            self._window.show_toast(f"Failed to run: {e}", timeout=5, copy=True)
             return
         self._window.show_toast(f"Started: {cmd}")
 

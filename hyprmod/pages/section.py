@@ -40,10 +40,11 @@ from hyprmod.core.change_tracking import (
     drop_target_idx,
     iter_item_changes,
 )
+from hyprmod.core.config import display_path
 from hyprmod.core.ownership import SavedList
 from hyprmod.core.pending import ChangeKind, PendingChange
 from hyprmod.core.undo import SavedListSnapshot
-from hyprmod.ui import clear_children, display_path
+from hyprmod.ui import clear_children
 
 if TYPE_CHECKING:
     from hyprmod.core.undo import UndoEntry

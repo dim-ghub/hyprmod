@@ -254,7 +254,7 @@ class WorkspacesPage(SavedListSectionPage[WorkspaceRule]):
         already been shown on failure).
         """
         ok = try_with_toast(
-            self._window.show_toast,
+            self._window.show_bug_toast,
             "Workspace rule failed",
             lambda: self._window.hypr.keyword(config.KEYWORD_WORKSPACE, rule.body()),
             catch=HyprlandError,

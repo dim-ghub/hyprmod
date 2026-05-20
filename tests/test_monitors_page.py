@@ -38,6 +38,7 @@ def _make_window(get_all_results: list[list[MonitorState]]) -> SimpleNamespace:
     return SimpleNamespace(
         hypr=hypr,
         show_toast=MagicMock(),
+        show_bug_toast=MagicMock(),
         saved_sections=saved_sections,
     )
 

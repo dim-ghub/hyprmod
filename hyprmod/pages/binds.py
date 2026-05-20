@@ -58,7 +58,7 @@ class BindsPage(SectionPage):
         if bind.arg:
             value += f", {bind.arg}"
         return try_with_toast(
-            self._window.show_toast,
+            self._window.show_bug_toast,
             "Bind failed",
             lambda: self._window.hypr.keyword(bind.bind_type, value),
             catch=HyprlandError,
@@ -67,7 +67,7 @@ class BindsPage(SectionPage):
     def _revert_bind_live(self, bind: BindData) -> bool:
         """Remove a bind from the running Hyprland instance."""
         return try_with_toast(
-            self._window.show_toast,
+            self._window.show_bug_toast,
             "Unbind failed",
             lambda: self._window.hypr.keyword(
                 config.KEYWORD_UNBIND, f"{bind.mods_str}, {bind.key}"

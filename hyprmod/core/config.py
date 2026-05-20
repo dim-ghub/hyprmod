@@ -146,6 +146,20 @@ def default_managed_path() -> Path:
     return _with_active_suffix(_DEFAULT_MANAGED_BASE)
 
 
+def display_path(path: Path) -> str:
+    """Return *path* as a string with ``$HOME`` collapsed to ``~``.
+
+    Used wherever an absolute home path would be noise or would leak the
+    username (UI source-line previews, external-rule provenance, bug-report
+    bodies). Falls back to the absolute path verbatim when *path* is
+    outside ``$HOME``.
+    """
+    try:
+        return "~/" + str(path.relative_to(Path.home()))
+    except ValueError:
+        return str(path)
+
+
 def set_managed_path(path: Path | None) -> None:
     """Override the managed-file path (``None`` reverts to the default).
 

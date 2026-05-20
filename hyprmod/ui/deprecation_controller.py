@@ -130,7 +130,7 @@ class DeprecationController:
             message = f"Applied {len(successes)} fix(es) with errors: " + "; ".join(shown)
             if more > 0:
                 message += f" (+{more} more)"
-            self._show_toast(message)
+            self._show_toast(message, copy=True)
         elif successes:
             self._show_toast(f"Migrated {len(successes)} file(s).")
         else:

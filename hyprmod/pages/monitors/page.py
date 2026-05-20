@@ -398,7 +398,7 @@ class MonitorsPage(SectionPage):
         if "mirror_of" in new_vals:
             error = validate_mirror(self._monitors, mon, new_vals["mirror_of"])
             if error:
-                self._window.show_toast(error, timeout=3)
+                self._window.show_toast(error, timeout=3, copy=True)
                 return
 
         with self._undo_track():
@@ -421,7 +421,7 @@ class MonitorsPage(SectionPage):
                             other.mirror_of = None
                             self._ownership.own(other.name)
                 if not try_with_toast(
-                    self._window.show_toast,
+                    self._window.show_bug_toast,
                     "Monitor config failed",
                     lambda: self._window.hypr.monitors.apply(self._monitors),
                     catch=HyprlandError,
@@ -440,7 +440,7 @@ class MonitorsPage(SectionPage):
             self._window.hypr.monitors.apply(self._monitors)
         except HyprlandError as e:
             self._applying = False
-            self._window.show_toast(f"Monitor config failed — {e}", timeout=5)
+            self._window.show_bug_toast(f"Monitor config failed — {e}", detail=str(e), timeout=5)
             return
         try:
             self._push_to_ui()
@@ -607,7 +607,7 @@ class MonitorsPage(SectionPage):
             self._window.hypr.monitors.apply(self._confirmed_monitors)
         except HyprlandError as e:
             self._applying = False
-            self._window.show_toast(f"Monitor revert failed — {e}", timeout=5)
+            self._window.show_bug_toast(f"Monitor revert failed — {e}", detail=str(e), timeout=5)
             return
         self._monitors = copy.deepcopy(self._confirmed_monitors)
         self._snap_scales()
@@ -744,7 +744,7 @@ class MonitorsPage(SectionPage):
         try:
             self._window.hypr.monitors.apply(self._saved_monitors)
         except HyprlandError as e:
-            self._window.show_toast(f"Monitor discard failed — {e}", timeout=5)
+            self._window.show_bug_toast(f"Monitor discard failed — {e}", detail=str(e), timeout=5)
             return
         finally:
             self._applying = False

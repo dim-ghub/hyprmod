@@ -257,7 +257,7 @@ class LayerRulesPage(SavedListSectionPage[LayerRule]):
         if not rule.enabled:
             return False
         return try_with_toast(
-            self._window.show_toast,
+            self._window.show_bug_toast,
             "Layer rule failed",
             lambda: self._window.hypr.keyword(config.KEYWORD_LAYERRULE, rule.body()),
             catch=HyprlandError,

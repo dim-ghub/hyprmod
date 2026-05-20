@@ -44,7 +44,7 @@ class HyprModApp(Adw.Application):
             window = win  # locally typed for the closure below
 
             def _on_setup() -> None:
-                try_with_toast(window.show_toast, "Setup failed", run_setup)
+                try_with_toast(window.show_bug_toast, "Setup failed", run_setup)
 
             OnboardingDialog(on_setup=_on_setup).present(win)
 

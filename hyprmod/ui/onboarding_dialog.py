@@ -15,7 +15,7 @@ from collections.abc import Callable
 from gi.repository import Adw, Gtk
 
 from hyprmod.core import config
-from hyprmod.ui import display_path
+from hyprmod.core.config import display_path
 
 
 class OnboardingDialog(Adw.AlertDialog):
