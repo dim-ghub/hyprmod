@@ -289,7 +289,13 @@ class MonitorCard(Gtk.Box):
         badges_box.set_hexpand(True)
         header_box.append(badges_box)
 
-        # Action buttons (discard / remove override) — hover-revealed
+        # Action buttons (discard / remove override) — hover-revealed.
+        # The discard button always lives in the layout (opacity-controlled) so
+        # the actions_box width stays constant when a change first dirties the
+        # row. The remove button uses set_visible: it only toggles when the
+        # monitor is saved/un-saved, which is a deliberate one-off, so the
+        # accompanying shift is acceptable and reserving its slot otherwise
+        # would leave an invisible gap on every unmanaged card.
         self._actions_box = Gtk.Box(spacing=2)
         self._actions_box.set_valign(Gtk.Align.CENTER)
         self._actions_box.add_css_class("reset-button")
@@ -298,7 +304,6 @@ class MonitorCard(Gtk.Box):
         self._discard_btn.set_valign(Gtk.Align.CENTER)
         self._discard_btn.set_tooltip_text("Discard changes")
         self._discard_btn.add_css_class("flat")
-        self._discard_btn.set_visible(False)
         self._discard_btn.connect("clicked", self._on_discard_clicked)
         self._actions_box.append(self._discard_btn)
 
@@ -309,6 +314,8 @@ class MonitorCard(Gtk.Box):
         self._remove_btn.set_visible(False)
         self._remove_btn.connect("clicked", self._on_remove_clicked)
         self._actions_box.append(self._remove_btn)
+
+        self._set_discard_btn_active(False)
 
         header_box.append(self._actions_box)
 
@@ -390,6 +397,14 @@ class MonitorCard(Gtk.Box):
         self.append(display_group)
 
         # -- Advanced group (expander) --
+        # If the only thing the expander would contain is "Identify by
+        # description" (single monitor + no HDR/10-bit/VRR caps), promote that
+        # row into the display group and skip the expander entirely so the
+        # user doesn't have to open a collapsible just to flip one switch.
+        has_other_monitors = bool(self._mirror_choices)
+        has_advanced_caps = any(self._caps.get(k) for k in ("hdr", "ten_bit", "vrr"))
+        flatten_advanced = not has_other_monitors and not has_advanced_caps
+
         advanced_group = Adw.PreferencesGroup()
         advanced_group.set_margin_top(12)
         self._advanced_expander = Adw.ExpanderRow(title="Advanced")
@@ -435,7 +450,13 @@ class MonitorCard(Gtk.Box):
         self._signals.connect(self._pos_x, "value-changed", self._on_position_changed)
         self._signals.connect(self._pos_y, "value-changed", self._on_position_changed)
         self._attach_row_actions(pos_row, lambda: self._discard_fields("x", "y"))
-        self._advanced_expander.add_row(pos_row)
+        # Position and mirror are only meaningful with another monitor to
+        # position against or mirror to. Skip them in the solo case;
+        # set_visible(False) keeps them out of the searchable_fields filter.
+        if has_other_monitors:
+            self._advanced_expander.add_row(pos_row)
+        else:
+            pos_row.set_visible(False)
 
         # Mirror
         mirror_labels = ["Off"] + [f"{name} \u2014 {label}" for name, label in self._mirror_choices]
@@ -451,7 +472,10 @@ class MonitorCard(Gtk.Box):
         self._mirror_row.set_selected(current_idx)
         self._signals.connect(self._mirror_row, "notify::selected", self._on_mirror_changed)
         self._attach_row_actions(self._mirror_row, lambda: self._discard_fields("mirror_of"))
-        self._advanced_expander.add_row(self._mirror_row)
+        if has_other_monitors:
+            self._advanced_expander.add_row(self._mirror_row)
+        else:
+            self._mirror_row.set_visible(False)
         # Disable position when mirroring
         if monitor.mirror_of is not None:
             pos_row.set_sensitive(False)
@@ -476,7 +500,10 @@ class MonitorCard(Gtk.Box):
         self._attach_row_actions(
             self._identify_row, lambda: self._discard_fields("identify_by_description")
         )
-        self._advanced_expander.add_row(self._identify_row)
+        if flatten_advanced:
+            display_group.add(self._identify_row)
+        else:
+            self._advanced_expander.add_row(self._identify_row)
         self._refresh_identify_state(monitor)
 
         # Optional extras (only shown if hardware supports them)
@@ -523,13 +550,14 @@ class MonitorCard(Gtk.Box):
                 self._advanced_expander.add_row(row)
         self._refresh_hdr_slider_visibility()
 
-        self.append(advanced_group)
+        if not flatten_advanced:
+            self.append(advanced_group)
 
         self._setting_rows = [
             self._mode_row,
             self._scale_row,
             self._transform_row,
-            self._advanced_expander,
+            self._identify_row if flatten_advanced else self._advanced_expander,
         ]
         if monitor.disabled:
             for row in self._setting_rows:
@@ -548,7 +576,7 @@ class MonitorCard(Gtk.Box):
             self._identify_row,
             *self._hdr_slider_rows,
         ):
-            if row is not None:
+            if row is not None and row.get_visible():
                 self._searchable.append((row.get_title(), row.get_subtitle() or ""))
 
     @property
@@ -865,7 +893,7 @@ class MonitorCard(Gtk.Box):
                 if dirty:
                     any_dirty = True
 
-        self._discard_btn.set_visible(any_dirty)
+        self._set_discard_btn_active(any_dirty)
         self._remove_btn.set_visible(is_saved and is_managed)
 
     def _update_row(self, row: Gtk.Widget, dirty: bool, managed: bool):
@@ -877,6 +905,17 @@ class MonitorCard(Gtk.Box):
                 is_saved=managed,
                 show_reset=False,
             )
+
+    def _set_discard_btn_active(self, active: bool):
+        """Toggle the header discard button without changing its layout footprint.
+
+        Opacity + sensitivity instead of set_visible so the actions_box width
+        stays constant; otherwise the first change on a clean card shifts the
+        rest of the header (and every card below it).
+        """
+        self._discard_btn.set_opacity(1.0 if active else 0.0)
+        self._discard_btn.set_sensitive(active)
+        self._discard_btn.set_can_focus(active)
 
     def _set_pair_lock(self, field: str, peer: str, active: bool):
         """Update lock state for one luminance pair and its two button icons."""

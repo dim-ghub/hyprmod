@@ -268,6 +268,9 @@ class MonitorsPage(SectionPage):
         if self._content_box is None:
             return
         clear_children(self._content_box)
+        self._preview = None
+        self._drag_hint = None
+        self._gap_banner = None
 
         if not self._monitors:
             self._content_box.append(
@@ -279,34 +282,37 @@ class MonitorsPage(SectionPage):
             )
             return
 
-        self._preview = MonitorLayoutPreview(
-            on_position_changed=self._on_preview_drag,
-            on_drag_started=self._on_preview_drag_start,
-            on_drag_ended=self._on_preview_drag_end,
-        )
-        self._preview.set_monitors(self._monitors)
-        active = [m for m in self._monitors if not m.disabled and not m.mirror_of]
-        multi = len(active) > 1
-        self._preview.set_draggable(multi)
-        preview_frame = Gtk.Frame()
-        preview_frame.set_child(self._preview)
+        # Preview, drag hint, and gap-warning only make sense with more than
+        # one monitor — a single box and a never-firing gap banner are noise.
+        if len(self._monitors) > 1:
+            self._preview = MonitorLayoutPreview(
+                on_position_changed=self._on_preview_drag,
+                on_drag_started=self._on_preview_drag_start,
+                on_drag_ended=self._on_preview_drag_end,
+            )
+            self._preview.set_monitors(self._monitors)
+            active = [m for m in self._monitors if not m.disabled and not m.mirror_of]
+            multi = len(active) > 1
+            self._preview.set_draggable(multi)
+            preview_frame = Gtk.Frame()
+            preview_frame.set_child(self._preview)
 
-        preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        preview_box.append(preview_frame)
-        self._drag_hint = Gtk.Label(label="Drag monitors to reposition", visible=multi)
-        self._drag_hint.add_css_class("dim-label")
-        self._drag_hint.set_margin_top(4)
-        preview_box.append(self._drag_hint)
-        self._content_box.append(preview_box)
+            preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            preview_box.append(preview_frame)
+            self._drag_hint = Gtk.Label(label="Drag monitors to reposition", visible=multi)
+            self._drag_hint.add_css_class("dim-label")
+            self._drag_hint.set_margin_top(4)
+            preview_box.append(self._drag_hint)
+            self._content_box.append(preview_box)
 
-        self._gap_banner = Adw.Banner(
-            title="Monitors have gaps between them — cursor won't be able to move across",
-        )
-        gap_frame = Gtk.Frame()
-        gap_frame.add_css_class("gap-banner-frame")
-        gap_frame.set_child(self._gap_banner)
-        self._content_box.append(gap_frame)
-        self._update_gap_warning()
+            self._gap_banner = Adw.Banner(
+                title="Monitors have gaps between them — cursor won't be able to move across",
+            )
+            gap_frame = Gtk.Frame()
+            gap_frame.add_css_class("gap-banner-frame")
+            gap_frame.set_child(self._gap_banner)
+            self._content_box.append(gap_frame)
+            self._update_gap_warning()
 
         self._cards = []
         for idx, mon in enumerate(self._monitors):
@@ -578,6 +584,7 @@ class MonitorsPage(SectionPage):
 
     def _on_refresh(self, _button):
         self._resync_timer.cancel()
+        old_names = [m.name for m in self._monitors]
         self._reload_monitors()
         # Re-snapshot so dirty tracking compares against the freshly-read disk state.
         # Without this, a monitor that moved to a different port resolves to a new
@@ -585,7 +592,13 @@ class MonitorsPage(SectionPage):
         # leading to a phantom "pending changes" indicator.
         self._save_snapshot()
         self._save_confirmed_snapshot()
-        self._rebuild()
+        # Push in place when the connector set is unchanged so any expanded
+        # Advanced expander stays open; only rebuild when monitors actually
+        # appeared, disappeared, or reordered.
+        if self._cards and [m.name for m in self._monitors] == old_names:
+            self._push_to_ui()
+        else:
+            self._rebuild()
         self._on_monitors_changed()
 
     # -- Confirm/revert callbacks --
@@ -746,12 +759,15 @@ class MonitorsPage(SectionPage):
         except HyprlandError as e:
             self._window.show_bug_toast(f"Monitor discard failed — {e}", detail=str(e), timeout=5)
             return
-        finally:
-            self._applying = False
         self._monitors = copy.deepcopy(self._saved_monitors)
         self._snap_scales()
         self._save_confirmed_snapshot()
-        self._rebuild()
+        # Update in place — a full rebuild would collapse the Advanced expander
+        # and any other transient UI state (matches _revert_monitors behaviour).
+        try:
+            self._push_to_ui()
+        finally:
+            self._applying = False
         self._on_monitors_changed()
         self._schedule_resync()
 
