@@ -67,7 +67,7 @@ class DeprecationController:
         """Register the ``review-deprecations`` action so menus can reach it."""
         action = Gio.SimpleAction.new(ACTION_NAME, None)
         action.connect("activate", lambda *_: self.start_review())
-        action.set_enabled(True)
+        action.set_enabled(self._action_applicable())
         action_map.add_action(action)
         self._action = action
 
@@ -82,10 +82,12 @@ class DeprecationController:
         )
 
     def refresh(self) -> None:
-        """Re-scan and update banner visibility — call after applying or on demand."""
+        """Re-scan and update banner + action availability — call after applying or on demand."""
         self._last_scan = self._scan()
         self._banner.set_summary(len(self._last_scan.files))
         self._banner.set_reveal_child(self._should_offer(self._last_scan))
+        if self._action is not None:
+            self._action.set_enabled(self._action_applicable())
 
     # ── Internals ─────────────────────────────────────────────────────
 
@@ -113,6 +115,20 @@ class DeprecationController:
         if self._settings is None:
             return True
         return self._settings.get_string(_DISMISSED_KEY) != scan.fingerprint()
+
+    def _action_applicable(self) -> bool:
+        """True when the menu action should be reachable.
+
+        Hide the entry entirely when the scan turned up nothing the dialog
+        could show — opening it in that state lands on a "No deprecations
+        found" empty page, which isn't worth a menu slot. Unfixable rules
+        still count: the user can't auto-apply them, but the dialog lists
+        them so they know what needs hand-editing.
+        """
+        scan = self._last_scan
+        if scan is None:
+            return False
+        return scan.has_fixable or bool(scan.unfixable)
 
     def _mark_dismissed(self) -> None:
         """Pin the current scan fingerprint so the banner stays hidden until it changes."""

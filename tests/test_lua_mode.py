@@ -4,8 +4,9 @@ Hyprland 0.55.0 made Lua the default config language. When the user has
 ``~/.config/hypr/hyprland.lua`` present, hyprmod must:
 
 - Write its managed file as ``hyprland-gui.lua`` (not ``.conf``).
-- Inject ``dofile("…")`` into ``hyprland.lua`` during first-run setup
-  instead of ``source = …`` into ``hyprland.conf``.
+- Inject a ``require("…")`` / ``dofile("…")`` include line into
+  ``hyprland.lua`` during first-run setup instead of ``source = …``
+  into ``hyprland.conf``.
 """
 
 from types import SimpleNamespace
@@ -168,15 +169,44 @@ class TestReadAllSectionsRoundTrip:
 
 
 class TestRunSetup:
-    def test_lua_mode_appends_dofile_to_hyprland_lua(self, lua_mode) -> None:
+    def test_lua_mode_appends_require_to_hyprland_lua(self, lua_mode) -> None:
         lua_mode.user_lua.write_text("-- existing user content\n")
         setup.run_setup()
         out = lua_mode.user_lua.read_text()
         assert "-- existing user content" in out
-        assert f'dofile("{lua_mode.managed_lua}")' in out
+        # Default managed path lives directly under the config dir
+        # (``hyprland-gui.lua``), so the module name has no dots and
+        # ``require`` can name it — autoreload only watches require()d
+        # sub-files, not dofile()'d ones.
+        assert 'require("hyprland-gui")' in out
+        assert "dofile(" not in out
         assert "# HyprMod managed settings" not in out, (
             "Lua entrypoint must use Lua-style `--` comments, not Hyprlang `#`"
         )
+
+    def test_lua_mode_falls_back_to_dofile_outside_config_dir(self, lua_mode, tmp_path) -> None:
+        # Managed file outside the Hyprland config dir isn't reachable
+        # via ``package.path`` — must keep an absolute ``dofile`` so the
+        # loader finds it at all.
+        outside = tmp_path / "outside" / "managed.lua"
+        outside.parent.mkdir()
+        config.set_managed_path(outside)
+        setup.run_setup()
+        out = lua_mode.user_lua.read_text()
+        assert f'dofile("{outside}")' in out
+        assert "require(" not in out
+
+    def test_lua_mode_falls_back_to_dofile_with_dot_in_path(self, lua_mode, tmp_path) -> None:
+        # ``require`` reads ``.`` as a package separator, so a literal
+        # dot in any path segment would miss the file. Keep ``dofile``
+        # in that case.
+        dotted = lua_mode.user_lua.parent / "sub.dir" / "managed.lua"
+        dotted.parent.mkdir()
+        config.set_managed_path(dotted)
+        setup.run_setup()
+        out = lua_mode.user_lua.read_text()
+        assert f'dofile("{dotted}")' in out
+        assert "require(" not in out
 
     def test_lua_mode_does_not_touch_hyprland_conf(self, lua_mode) -> None:
         setup.run_setup()
@@ -205,7 +235,7 @@ class TestRunSetup:
 
 
 class TestNeedsSetup:
-    def test_returns_true_when_lua_mode_missing_dofile(self, lua_mode) -> None:
+    def test_returns_true_when_lua_mode_missing_include(self, lua_mode) -> None:
         assert setup.needs_setup() is True
 
     def test_returns_false_after_run_setup_in_lua_mode(self, lua_mode) -> None:
@@ -238,6 +268,98 @@ class TestNeedsSetup:
             "dofile() through the resolved path must match managed_lua_path() "
             "through the symlink — both refer to the same file"
         )
+
+    def test_require_pointing_at_managed_path_is_recognised(self, lua_mode) -> None:
+        # Post-migration shape from hyprland-config 0.9.1+: the user's
+        # hyprland.lua sources the managed file via ``require``, not
+        # ``dofile``. Detection must accept that form, otherwise the
+        # onboarding dialog re-appears and offers to add a duplicate
+        # include line.
+        lua_mode.user_lua.write_text('-- HyprMod managed settings\nrequire("hyprland-gui")\n')
+        # Make the target a real file so .resolve() doesn't matter
+        # either way.
+        lua_mode.managed_lua.write_text("")
+        assert setup.needs_setup() is False
+
+    def test_require_with_nested_module_is_recognised(self, lua_mode) -> None:
+        # ``source = ~/.config/hypr/gui/hyprland-gui-test.conf`` migrates
+        # to ``require("gui.hyprland-gui-test")``; the resolver must walk
+        # the dotted module name back to ``<config>/gui/hyprland-gui-test.lua``.
+        nested = lua_mode.user_lua.parent / "gui" / "hyprland-gui-test.lua"
+        nested.parent.mkdir()
+        nested.write_text("")
+        config.set_managed_path(nested)
+        lua_mode.user_lua.write_text('require("gui.hyprland-gui-test")\n')
+        assert setup.needs_setup() is False
+
+    def test_require_to_unrelated_module_does_not_match(self, lua_mode) -> None:
+        # A ``require`` pointing somewhere else must not trick detection
+        # into thinking our include line is already present.
+        lua_mode.user_lua.write_text('require("other-module")\n')
+        assert setup.needs_setup() is True
+
+    def test_commented_require_is_ignored(self, lua_mode) -> None:
+        lua_mode.user_lua.write_text('-- require("hyprland-gui")\n')
+        assert setup.needs_setup() is True
+
+
+class TestMigrateConfigPathLua:
+    """``migrate_config_path`` rewrites the existing include line in place."""
+
+    def test_rewrites_dofile_to_require(self, lua_mode, tmp_path) -> None:
+        # Legacy include line: hyprmod previously wrote ``dofile("/abs")``.
+        # After a path change the new include must use ``require`` (the
+        # default managed path is reachable by module name) so autoreload
+        # tracks it.
+        old = tmp_path / "hypr" / "old-managed.lua"
+        old.write_text("")
+        new = tmp_path / "hypr" / "new-managed.lua"
+        lua_mode.user_lua.write_text(f'dofile("{old}")\n')
+
+        setup.migrate_config_path(old, new)
+
+        out = lua_mode.user_lua.read_text()
+        assert 'require("new-managed")' in out
+        assert "dofile(" not in out
+
+    def test_rewrites_require_to_require(self, lua_mode, tmp_path) -> None:
+        # Post-conversion include line: hyprland-config 0.9.1+ emits
+        # ``require("name")``. A subsequent path move from settings must
+        # rewrite the module name without leaving the stale one behind.
+        old = tmp_path / "hypr" / "old-managed.lua"
+        old.write_text("")
+        new = tmp_path / "hypr" / "new-managed.lua"
+        lua_mode.user_lua.write_text('require("old-managed")\n')
+
+        setup.migrate_config_path(old, new)
+
+        out = lua_mode.user_lua.read_text()
+        assert 'require("new-managed")' in out
+        assert "old-managed" not in out
+
+
+class TestRenderLuaInclude:
+    """The preview helper the onboarding dialog uses."""
+
+    def test_require_form_for_target_under_config_root(self, lua_mode) -> None:
+        # Managed file directly under ~/.config/hypr/ — module name has
+        # no dots, ``require`` is the right form.
+        assert setup.render_lua_include(lua_mode.managed_lua) == 'require("hyprland-gui")'
+
+    def test_dofile_form_for_target_outside_config_root(self, lua_mode, tmp_path) -> None:
+        outside = tmp_path / "elsewhere" / "managed.lua"
+        rendered = setup.render_lua_include(outside)
+        assert rendered == f'dofile("{outside}")'
+
+    def test_display_form_collapses_home(self, lua_mode, monkeypatch) -> None:
+        # ``for_display=True`` should mirror ``display_path``'s ``~/…``
+        # collapsing on the dofile fallback so previews don't leak the
+        # username. (Only meaningful when ``require`` can't be used.)
+        home = lua_mode.user_lua.parent.parent.parent  # tmp_path
+        monkeypatch.setenv("HOME", str(home))
+        outside = home / "elsewhere" / "managed.lua"
+        rendered = setup.render_lua_include(outside, for_display=True)
+        assert rendered.startswith('dofile("~/')
 
 
 class TestLoadLuaReaderError:

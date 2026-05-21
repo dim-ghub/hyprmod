@@ -5,16 +5,16 @@ returns ``True``. The user can either confirm (we append our include
 statement to their top-level Hyprland entrypoint) or defer it.
 
 The dialog adapts its preview line to the active mode: in Lua mode it
-shows the ``dofile("…")`` snippet that will be appended to
-``hyprland.lua``; otherwise it shows the ``source = …`` line for
-``hyprland.conf``.
+shows the ``require("…")`` / ``dofile("…")`` snippet that will be
+appended to ``hyprland.lua``; otherwise it shows the ``source = …``
+line for ``hyprland.conf``.
 """
 
 from collections.abc import Callable
 
 from gi.repository import Adw, Gtk
 
-from hyprmod.core import config
+from hyprmod.core import config, setup
 from hyprmod.core.config import display_path
 
 
@@ -84,7 +84,9 @@ class OnboardingDialog(Adw.AlertDialog):
         box.append(setup_text)
 
         code_line = (
-            f'dofile("{display_path(target)}")' if lua_mode else f"source = {display_path(target)}"
+            setup.render_lua_include(target, for_display=True)
+            if lua_mode
+            else f"source = {display_path(target)}"
         )
         box.append(self._code_block(code_line))
 

@@ -480,7 +480,13 @@ class HyprModWindow(Adw.ApplicationWindow):
         migrate_item = Gio.MenuItem.new("Migrate to Lua…", f"win.{LUA_MIGRATION_ACTION}")
         migrate_item.set_attribute_value("hidden-when", GLib.Variant.new_string("action-disabled"))
         tools_section.append_item(migrate_item)
-        tools_section.append("Review deprecated syntax…", f"win.{DEPRECATIONS_ACTION}")
+        deprecations_item = Gio.MenuItem.new(
+            "Review deprecated syntax…", f"win.{DEPRECATIONS_ACTION}"
+        )
+        deprecations_item.set_attribute_value(
+            "hidden-when", GLib.Variant.new_string("action-disabled")
+        )
+        tools_section.append_item(deprecations_item)
         menu.append_section(None, tools_section)
 
         help_section = Gio.Menu()
