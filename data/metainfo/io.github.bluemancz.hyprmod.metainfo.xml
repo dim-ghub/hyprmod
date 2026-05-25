@@ -70,6 +70,22 @@
   </keywords>
 
   <releases>
+    <release version="0.3.0" date="2026-05-25">
+      <description>
+        <p>Lua config support, new pages, and major fixes:</p>
+        <ul>
+          <li>Lua config support: read and edit hyprland.lua directly, with a "Migrate to Lua" wizard (Hyprland 0.55+)</li>
+          <li>Per-monitor "Identify by description" toggle for port-independent monitor configs</li>
+          <li>Advanced HDR controls: Color Management presets, SDR brightness/saturation, luminance sliders</li>
+          <li>Workspaces page: manage workspace rules with live preview and live IPC apply</li>
+          <li>Deprecation assistant: detect and migrate deprecated syntax with user confirmation and backups</li>
+          <li>Convenience installer (install.sh) and --install / --uninstall CLI flags</li>
+          <li>In-app bug reporting with prefilled GitHub issues</li>
+          <li>Per-monitor VRR control with "Use global" and corrected Off behavior</li>
+          <li>Named window and layer rules support</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-05-07">
       <description>
         <p>New configuration pages and UX improvements:</p>
