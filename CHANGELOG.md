@@ -5,6 +5,12 @@ All notable changes to HyprMod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Changing the active or inactive window border color in Lua mode no longer fails with an `invalid color` error; a single-color border was sent to Hyprland with a redundant `0deg` angle that its Lua config manager rejected (#43)
+
 ## [0.3.0] - 2026-05-25
 
 ### Added
