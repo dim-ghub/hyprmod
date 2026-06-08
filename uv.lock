@@ -22,23 +22,23 @@ wheels = [
 
 [[package]]
 name = "hyprland-monitors"
-version = "0.7.0"
+version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hyprland-socket" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/80/6f/f8e4a584628c66e0c47cf8d8496f131f0bcb09ce958bf66ada0cb26960e1/hyprland_monitors-0.7.0.tar.gz", hash = "sha256:08b6d881b5d99b865288568ae77a9422eb2ab657f86a939bfc438d66fa70dd14", size = 12559, upload-time = "2026-05-19T08:17:46.257Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/da/31/78f520fe585edb20e7f4a979f9588b2d5f9250c330915ce9be23ed5cade3/hyprland_monitors-0.8.0.tar.gz", hash = "sha256:fd4b75f9163aa30c2e73d9c49d98f4f159ee1485b45eb2fcf345ac387f9efa46", size = 13026, upload-time = "2026-06-08T19:11:54.493Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/eb/90/e8bf501da506a8adf906a2dcffe1d039381d6b4c0d1e1da45a4e021e4a9c/hyprland_monitors-0.7.0-py3-none-any.whl", hash = "sha256:0c375a0b9e04041ce52d6e6dd8d54f0fe9fcea78ae762904e0df5ae4904e04cc", size = 14235, upload-time = "2026-05-19T08:17:44.731Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/fe/3c032f5e9ac50f447ddc06a4d56b968563c05461c5ae15249a85f77fc5f9/hyprland_monitors-0.8.0-py3-none-any.whl", hash = "sha256:0791a1a3c9259546d55fc4e52e78cf8c38a1fdfcab54050748a120e6202ec71b", size = 14728, upload-time = "2026-06-08T19:11:53.359Z" },
 ]
 
 [[package]]
 name = "hyprland-schema"
-version = "0.6.1"
+version = "0.6.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/46/cf/ee769d22dd38de86b1448a24676bea40226cc7629ccd2c8e7619bb2a0c94/hyprland_schema-0.6.1.tar.gz", hash = "sha256:58426d95102684cf382ce71e354b42dcd2f25fa11ec52c3f75859cbbe59c535a", size = 45994, upload-time = "2026-05-16T20:04:58.835Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8f/85/3e19d16ae5b6999a7fdd42beaff88adb9068d84ca662eedac4006fa2fd73/hyprland_schema-0.6.2.tar.gz", hash = "sha256:f15474c7cc642e243e2f2efd15f668f6f1d4479b2a2e8e02b650d4233d90d7c3", size = 46024, upload-time = "2026-06-08T19:19:31.956Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4e/d6/b47366c84fb4f02eee0f72dc37c53f5c3bd5fa4b32083adb96069559a861/hyprland_schema-0.6.1-py3-none-any.whl", hash = "sha256:f497a754802cccc478f5d74403b16e42b785acfc033650945aa12700bcd7b5a7", size = 50275, upload-time = "2026-05-16T20:04:56.949Z" },
+    { url = "https://files.pythonhosted.org/packages/1f/66/f4608fc54ecd253f59a7e57cc28c54463519a8849ea6d08c17c841b704c3/hyprland_schema-0.6.2-py3-none-any.whl", hash = "sha256:834bcab00f5ecca55d03694c8e447833947d5c4f882b9adf1bcbf387e03e51b1", size = 50565, upload-time = "2026-06-08T19:19:30.721Z" },
 ]
 
 [[package]]
@@ -89,8 +89,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "hyprland-config", specifier = ">=0.9.7" },
-    { name = "hyprland-monitors", specifier = ">=0.7.0" },
-    { name = "hyprland-schema", specifier = ">=0.6.1" },
+    { name = "hyprland-monitors", specifier = ">=0.8.0" },
+    { name = "hyprland-schema", specifier = ">=0.6.2" },
     { name = "hyprland-socket", specifier = ">=0.12.2" },
     { name = "hyprland-state", specifier = ">=0.4.2" },
     { name = "pygobject", specifier = ">=3.56.2" },
