@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Re-enabling a disabled monitor no longer overlaps or snaps onto another monitor, comes back at its preferred mode when Hyprland reports `0x0` after a reboot, and no longer crashes the Monitors page with `scales must not be empty` (#46)
 - Workspace rules in generated Lua configs now write the workspace selector as a string (`workspace = "1"` instead of `workspace = 1`); `hl.workspace_rule` declares the field as a string, and the integer form relied on Lua's implicit coercion and was flagged by lua-language-server (#48)
 - "Refresh monitors" no longer discards unsaved monitor changes and clears the pending-changes indicator
+- The workspace rule dialog's appearance overrides are now single "Use global / On / Off" dropdowns; the previous override-switch-plus-value-switch pair could keep showing "On" after the value was switched off
 
 ## [0.3.0] - 2026-05-25
 

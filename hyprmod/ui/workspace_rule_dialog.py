@@ -13,17 +13,21 @@ Six preference groups, each one of the rule's logical concerns:
    "Set as default" switch.
 3. **Lifecycle** — Persistent switch + ``on-created-empty`` shell
    command entry.
-4. **Appearance** — Border / Rounding / Shadow / Decoration toggles
+4. **Appearance** — Border / Rounding / Shadow / Decoration overrides
    plus border size.
 5. **Gaps** — Inner and outer gap overrides, each with a mode selector
    (single value vs. four per-side values).
 6. **Naming** — Default workspace name entry.
 
-Each "override" field uses a switchable expander pattern: an
-:class:`Adw.SwitchRow` controls whether the field is part of the rule,
-and the value widget below it sets the value. Rows in the off state
-emit ``None`` into the model so the resulting config line only carries
-fields the user has actually configured.
+Each "override" field uses one of two patterns. The boolean decoration
+flags (border, rounding, …) use a tri-state :class:`Adw.ComboRow`
+(*Use global* / *On* / *Off*) mapping to ``None`` / ``True`` /
+``False``. Fields with a richer value (border size, gaps, command,
+name) keep a switchable pattern: an :class:`Adw.SwitchRow` controls
+whether the field is part of the rule, and the value widget below it
+sets the value. Either way an unset field emits ``None`` into the model
+so the resulting config line only carries fields the user has actually
+configured.
 
 A live preview at the bottom always shows the exact ``workspace = …``
 line (or ``hl.workspace_rule({...})`` snippet in Lua mode) hyprmod will
@@ -272,24 +276,24 @@ class WorkspaceRuleEditDialog(SingletonDialogMixin, Adw.Dialog):
         return group
 
     def _build_appearance_group(self) -> Adw.PreferencesGroup:
-        """Border / Rounding / Shadow / Decoration toggles + border size."""
+        """Border / Rounding / Shadow / Decoration overrides + border size."""
         group = Adw.PreferencesGroup(title="Appearance")
         group.set_description(
-            "Override decoration settings for windows on this workspace. "
-            "Each override only applies when toggled on."
+            "Override window decoration for this workspace. "
+            "Settings left on “Use global” inherit your normal config."
         )
 
-        self._border_override, self._border_value = self._add_bool_override(
-            group, "Border", "Draw window borders on this workspace.", default=True
+        self._border_combo = self._add_bool_combo(
+            group, "Border", "Draw window borders on this workspace."
         )
-        self._rounding_override, self._rounding_value = self._add_bool_override(
-            group, "Rounding", "Round window corners on this workspace.", default=True
+        self._rounding_combo = self._add_bool_combo(
+            group, "Rounding", "Round window corners on this workspace."
         )
-        self._shadow_override, self._shadow_value = self._add_bool_override(
-            group, "Shadow", "Draw window shadows on this workspace.", default=True
+        self._shadow_combo = self._add_bool_combo(
+            group, "Shadow", "Draw window shadows on this workspace."
         )
-        self._decorate_override, self._decorate_value = self._add_bool_override(
-            group, "Decoration", "Render window decoration on this workspace.", default=True
+        self._decorate_combo = self._add_bool_combo(
+            group, "Decoration", "Render window decoration on this workspace."
         )
 
         # Border size — same override pattern but with a SpinRow as the value.
@@ -308,32 +312,22 @@ class WorkspaceRuleEditDialog(SingletonDialogMixin, Adw.Dialog):
 
         return group
 
-    def _add_bool_override(
+    def _add_bool_combo(
         self,
         group: Adw.PreferencesGroup,
         label: str,
         subtitle: str,
-        *,
-        default: bool,
-    ) -> tuple[Adw.SwitchRow, Adw.SwitchRow]:
-        """Add a switchable bool override pair (override toggle + value)."""
-        override = Adw.SwitchRow(
-            title=f"{label} override",
-            subtitle=subtitle,
-        )
-        override.connect("notify::active", lambda *_, lbl=label: self._on_bool_override_toggle(lbl))
-        group.add(override)
+    ) -> Adw.ComboRow:
+        """Add a tri-state appearance override (Use global / On / Off).
 
-        value = Adw.SwitchRow(
-            title=label,
-            subtitle="On" if default else "Off",
-        )
-        value.set_active(default)
-        value.set_visible(False)
-        value.connect("notify::active", lambda *_: self._refresh())
-        group.add(value)
-
-        return override, value
+        The selected index maps to the model: 0 → ``None`` (inherit the
+        global setting), 1 → ``True``, 2 → ``False``.
+        """
+        combo = Adw.ComboRow(title=label, subtitle=subtitle)
+        combo.set_model(Gtk.StringList.new(["Use global", "On", "Off"]))
+        combo.connect("notify::selected", lambda *_: self._refresh())
+        group.add(combo)
+        return combo
 
     def _build_gaps_group(self) -> Adw.PreferencesGroup:
         """Inner / outer gap overrides with scalar vs. per-side modes."""
@@ -429,21 +423,6 @@ class WorkspaceRuleEditDialog(SingletonDialogMixin, Adw.Dialog):
             self._selector_value.set_tooltip_text(descr)
         self._refresh()
 
-    def _on_bool_override_toggle(self, label: str) -> None:
-        """Show/hide the value widget for one of the bool overrides."""
-        override, value = self._bool_override_pair(label)
-        is_on = override.get_active()
-        value.set_visible(is_on)
-        self._refresh()
-
-    def _bool_override_pair(self, label: str) -> tuple[Adw.SwitchRow, Adw.SwitchRow]:
-        return {
-            "Border": (self._border_override, self._border_value),
-            "Rounding": (self._rounding_override, self._rounding_value),
-            "Shadow": (self._shadow_override, self._shadow_value),
-            "Decoration": (self._decorate_override, self._decorate_value),
-        }[label]
-
     def _on_border_size_toggle(self, *_args: object) -> None:
         self._border_size_value.set_visible(self._border_size_override.get_active())
         self._refresh()
@@ -520,17 +499,16 @@ class WorkspaceRuleEditDialog(SingletonDialogMixin, Adw.Dialog):
             self._on_created_switch.set_active(True)
             self._on_created_entry.set_text(rule.on_created_empty)
 
-        # Appearance
-        for attr, override, value in (
-            ("border", self._border_override, self._border_value),
-            ("rounding", self._rounding_override, self._rounding_value),
-            ("shadow", self._shadow_override, self._shadow_value),
-            ("decorate", self._decorate_override, self._decorate_value),
+        # Appearance — None stays on "Use global" (index 0); True → 1, False → 2.
+        for attr, combo in (
+            ("border", self._border_combo),
+            ("rounding", self._rounding_combo),
+            ("shadow", self._shadow_combo),
+            ("decorate", self._decorate_combo),
         ):
             stored = getattr(rule, attr)
             if stored is not None:
-                override.set_active(True)
-                value.set_active(stored)
+                combo.set_selected(1 if stored else 2)
         if rule.border_size is not None:
             self._border_size_override.set_active(True)
             self._border_size_value.set_value(float(rule.border_size))
@@ -590,15 +568,16 @@ class WorkspaceRuleEditDialog(SingletonDialogMixin, Adw.Dialog):
             if cmd:
                 rule.on_created_empty = cmd
 
-        # Appearance — only emit when the override switch is on
-        for attr, override, value in (
-            ("border", self._border_override, self._border_value),
-            ("rounding", self._rounding_override, self._rounding_value),
-            ("shadow", self._shadow_override, self._shadow_value),
-            ("decorate", self._decorate_override, self._decorate_value),
+        # Appearance — index 0 ("Use global") leaves the field unset; 1 → True, 2 → False.
+        for attr, combo in (
+            ("border", self._border_combo),
+            ("rounding", self._rounding_combo),
+            ("shadow", self._shadow_combo),
+            ("decorate", self._decorate_combo),
         ):
-            if override.get_active():
-                setattr(rule, attr, value.get_active())
+            selected = combo.get_selected()
+            if selected != 0:
+                setattr(rule, attr, selected == 1)
         if self._border_size_override.get_active():
             rule.border_size = int(self._border_size_value.get_value())
 
