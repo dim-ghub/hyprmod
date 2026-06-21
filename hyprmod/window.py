@@ -1,6 +1,5 @@
 """Main application window with sidebar navigation."""
 
-import subprocess
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
@@ -10,12 +9,11 @@ from hyprland_config import Rule, coerce_config_value
 from hyprland_socket import HyprlandError
 from hyprland_state import ANIM_LOOKUP, HyprlandState
 
-from hyprmod.constants import APPLICATION_ID
 from hyprmod.core import config, profiles, schema
 from hyprmod.core.bug_report import build_bug_report_url
+from hyprmod.core.settings import apply_saved_config_path, open_settings
 from hyprmod.core.state import AppState
 from hyprmod.core.undo import OptionChange, PairedOptionChange, UndoManager
-from hyprmod.data import bundled_data_dir
 from hyprmod.data.bezier_data import get_curve_store
 from hyprmod.pages.animations import AnimationsPage
 from hyprmod.pages.autostart import AutostartPage
@@ -58,9 +56,6 @@ INPUT_TOUCHPAD = "input:touchpad"
 
 
 CSS_PATH = Path(__file__).parent / "style.css"
-# The GSettings schema id matches our application id by convention; aliasing
-# here keeps the schema lookup explicit at point of use.
-SETTINGS_SCHEMA_ID = APPLICATION_ID
 
 
 class HyprModWindow(Adw.ApplicationWindow):
@@ -70,8 +65,8 @@ class HyprModWindow(Adw.ApplicationWindow):
         self.set_title("HyprMod")
         self.set_default_size(900, 650)
 
-        self._init_settings()
-        self._apply_saved_config_path()
+        self._settings = open_settings()
+        apply_saved_config_path(self._settings)
 
         # Warm the managed-config cache so the first ``saved_sections`` access
         # below doesn't pay for a parse synchronously during widget construction.
@@ -122,52 +117,6 @@ class HyprModWindow(Adw.ApplicationWindow):
         self._build_ui()
         self._register_state()
         self._refresh_all_modified_indicators()
-
-    def _init_settings(self):
-        """Load GSettings for app preferences (auto-save, etc.)."""
-        schema_dir = bundled_data_dir()
-        self._recompile_schemas_if_stale(schema_dir)
-        schema_source = Gio.SettingsSchemaSource.new_from_directory(
-            str(schema_dir),
-            Gio.SettingsSchemaSource.get_default(),
-            False,
-        )
-        schema_obj = schema_source.lookup(SETTINGS_SCHEMA_ID, False)
-        if schema_obj:
-            self._settings = Gio.Settings.new_full(schema_obj, None, None)
-        else:
-            self._settings = None
-
-    @staticmethod
-    def _recompile_schemas_if_stale(schema_dir: Path):
-        """Recompile GSettings schemas if the compiled file is stale or missing."""
-        xml_files = list(schema_dir.glob("*.gschema.xml"))
-        if not xml_files:
-            return
-        compiled = schema_dir / "gschemas.compiled"
-        latest_xml_mtime = max(xml.stat().st_mtime for xml in xml_files)
-        if not compiled.exists() or compiled.stat().st_mtime < latest_xml_mtime:
-            subprocess.run(
-                ["glib-compile-schemas", str(schema_dir)],
-                check=False,
-            )
-
-    def _apply_saved_config_path(self):
-        """Apply the config-path setting from GSettings on startup."""
-        if not self._settings:
-            return
-        path = self._settings.get_string("config-path")
-        if not path:
-            return
-        # User may have switched Hyprland's config language out-of-band
-        # since the path was stored — re-align the suffix (converting
-        # file content if needed) so we don't silently write to a file
-        # the live compositor never loads.
-        repointed = config.ensure_managed_path_matches_mode(path)
-        if repointed is not None:
-            self._settings.set_string("config-path", repointed)
-            path = repointed
-        config.set_managed_path(Path(path))
 
     @property
     def auto_save(self) -> bool:
