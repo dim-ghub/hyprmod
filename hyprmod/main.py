@@ -6,6 +6,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
+from hyprmod import cli
 from hyprmod.constants import APPLICATION_ID
 from hyprmod.core.setup import needs_setup, run_setup
 from hyprmod.install import ensure_registered_silently, install_user_files, uninstall_user_files
@@ -52,12 +53,18 @@ class HyprModApp(Adw.Application):
 
 
 def main():
-    if "--install" in sys.argv[1:]:
+    args = sys.argv[1:]
+    if "--install" in args:
         install_user_files()
         return 0
-    if "--uninstall" in sys.argv[1:]:
+    if "--uninstall" in args:
         uninstall_user_files()
         return 0
+    # Any leading positional token is a CLI command attempt: route it to the
+    # parser so typos get a proper error instead of silently launching the GUI
+    # (the app takes no positional args). Flags fall through to GTK.
+    if args and not args[0].startswith("-"):
+        return cli.run(args)
 
     app = HyprModApp()
 

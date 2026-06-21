@@ -128,13 +128,16 @@ def set_active_id(profile_id: str | None) -> None:
 
 
 def list_profiles_and_active() -> tuple[list[dict], str | None]:
-    """Return (profiles_list, active_id).
+    """Return (profiles_list, active_id), sorted alphabetically by name.
 
     Each profile dict has keys: id, name, description, created_at, modified_at.
+    Name order (case-insensitive) is the canonical ordering shared by the
+    GUI list and CLI cycling, so ``profile next`` / ``previous`` move in a
+    predictable sequence.
     """
     profiles = []
     if _PROFILES_DIR.exists():
-        for d in sorted(_PROFILES_DIR.iterdir()):
+        for d in _PROFILES_DIR.iterdir():
             if d.is_dir() and (d / _META_FILE).exists():
                 meta = _read_meta(d.name)
                 profiles.append(
@@ -146,7 +149,38 @@ def list_profiles_and_active() -> tuple[list[dict], str | None]:
                         "modified_at": meta.get("modified_at", ""),
                     }
                 )
+    profiles.sort(key=lambda p: (p["name"].strip().lower(), p["id"]))
     return profiles, get_active_id()
+
+
+def adjacent_id(profile_list: list[dict], active_id: str | None, *, forward: bool) -> str | None:
+    """Return the ID of the profile next to *active_id* in *profile_list*.
+
+    Cycling wraps around the ends, so it never dead-ends. When *active_id*
+    is missing from the list (none set, or a stale pointer to a deleted
+    profile), returns the first element going forward and the last going
+    backward. Returns ``None`` only when *profile_list* is empty.
+    """
+    if not profile_list:
+        return None
+    ids = [p["id"] for p in profile_list]
+    try:
+        index = ids.index(active_id)
+    except ValueError:
+        return ids[0] if forward else ids[-1]
+    return ids[(index + (1 if forward else -1)) % len(ids)]
+
+
+def find_by_name(profile_list: list[dict], name: str) -> dict | None:
+    """Return the profile in *profile_list* named *name* (case-insensitive).
+
+    Names are unique across profiles (the save/rename dialogs reject
+    duplicates), so the first match is unambiguous. Returns the whole
+    profile dict so callers can recover the stored name's exact casing,
+    or ``None`` when nothing matches.
+    """
+    target = name.strip().lower()
+    return next((p for p in profile_list if p["name"].strip().lower() == target), None)
 
 
 def read_profile_values(profile_id: str) -> dict[str, str]:

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Command-line profile switching (#50): `hyprmod profile apply <name>` switches profiles without opening the window (bindable to a keybind or scriptable), `hyprmod profile next` / `previous` cycle through them alphabetically (wrapping around, great for a single keybind), and `hyprmod profile list` shows the saved profiles with the active one marked. The profile list, in the app and on the command line, is now ordered alphabetically
 - Multiple keyboard layouts (#44): the Keyboard layouts row opens a dialog to add, reorder, edit, and remove input sources (a layout plus its variant), written to `kb_layout` and `kb_variant`
 
 ### Fixed

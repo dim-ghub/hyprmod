@@ -49,6 +49,17 @@ Huge thanks to the creators below — without you, HyprMod would reach far fewer
 - Config DNA — a unique visual fingerprint per profile
 - Global search across all options (Ctrl+F)
 
+## ⌨️ Command line
+
+Switch profiles without opening the window. Handy to bind to a Hyprland keybind or call from a script.
+
+```bash
+hyprmod profile list            # show saved profiles (active marked with *)
+hyprmod profile apply Gaming    # switch to a profile by name (case-insensitive)
+hyprmod profile next            # cycle to the next profile (alphabetical, wraps around)
+hyprmod profile previous        # cycle to the previous one (alias: prev)
+```
+
 ## 📦 Installation
 
 > HyprMod is in active development and not yet packaged for most distributions.
@@ -108,7 +119,6 @@ Running from a checkout? See [CONTRIBUTING.md](CONTRIBUTING.md).
 **Later**
 - Pages for the hypr* ecosystem — hyprpaper, hypridle, hyprlock
 - Plugin manager (`hyprpm`)
-- Command-line interface — `hyprmod profile apply <name>`
 
 **Out of scope** — Wi-Fi, Bluetooth, printing, default apps, and GTK theming belong in a desktop control center, not a Hyprland settings app. See [#15](https://github.com/BlueManCZ/hyprmod/issues/15) for the reasoning.
 
