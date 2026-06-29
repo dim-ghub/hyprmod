@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The workspace rule dialog's appearance overrides are now single "Use global / On / Off" dropdowns; the previous override-switch-plus-value-switch pair could keep showing "On" after the value was switched off
 - Binds using the `global` dispatcher (app-registered global shortcuts, e.g. `bind = SUPER, period, global, caelestia:emoji`) no longer fail to apply in Lua mode; the dispatcher had no Lua mapping (#49)
 - The first-run setup dialog no longer reappears when HyprMod's include line lives in a sourced sub-file rather than directly in `hyprland.lua` / `hyprland.conf`; detection now follows the whole `source` / `require` / `dofile` chain instead of inspecting only the top-level entrypoint (#51)
+- Migrating to Lua no longer breaks keybinds that use a modifier variable (`$shiftMod = $mainMod SHIFT`); the variable now joins its modifiers with `+` instead of leaking a space-separated `SUPER SHIFT` blob that Hyprland reads as a single unknown keysym (#52)
+- Migrating to Lua no longer breaks workspace `layoutopt` rules; `layoutopt:direction:right` now becomes a nested `layout_opts` table instead of a flat string that `hl.workspace_rule` rejects (#53)
 
 ## [0.3.0] - 2026-05-25
 
