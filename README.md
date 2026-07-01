@@ -80,7 +80,7 @@ curl -LsSf https://raw.githubusercontent.com/BlueManCZ/hyprmod/main/install.sh |
 
 ### 📦 pkgit
 
-If you use `pkgit`, you can install `hyprmod` with:
+If you use [`pkgit`](https://git.symlinx.net/pkgit/about/), you can install `hyprmod` directly with:
 
 ```bash
 pkgit -i https://github.com/BlueManCZ/hyprmod

@@ -1,6 +1,6 @@
 bldit_version = "0.1.3"
 package_name = "hyprmod"
-package_version = "1.0.0"
+package_version = "0.4.0"
 global_dependencies = {}
 dependencies = {}
 
