@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The window rule dialog supports multiple actions per rule: actions are a dynamic list of blocks that can be added and removed individually, instead of a single action per rule (#57)
+- The window rule dialog supports multiple actions per rule: actions are a dynamic list of blocks that can be added and removed individually, instead of a single action per rule; anonymous rules with multiple effects now also load as one rule instead of splitting into separate entries (#57, #58)
 
 ### Changed
 
