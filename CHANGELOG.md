@@ -5,6 +5,16 @@ All notable changes to HyprMod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- The window rule dialog autofills new condition rows from the last picked window: after picking a window, "+ Condition" pre-fills the matching value, and changing a condition's type from the dropdown updates the value to match the picked window (#56)
+
+### Fixed
+
+- Changing a condition from a boolean type (like `xwayland`) to a text type (like `initial_class`) no longer leaves the literal string `"false"` in the value field (#56)
+
 ## [0.4.0] - 2026-07-01
 
 ### Added
