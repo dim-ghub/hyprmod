@@ -6,10 +6,12 @@ Two halves:
    key dropdown (class, title, xwayland, …) and a value entry. Plus
    a "Pick from open window" button that auto-fills class regex
    from a currently-running window.
-2. **Apply this action** — a single dropdown of common Hyprland
-   v3 effects (float, opacity, size, no_blur, …) with effect-specific
-   argument fields. A "Custom action…" entry covers anything we
-   haven't catalogued, including plugin actions.
+2. **Apply these actions** — a dynamic list of action blocks, each
+   with a dropdown of common Hyprland v3 effects (float, opacity,
+   size, no_blur, …) and effect-specific argument fields. A "Custom
+   action…" entry covers anything we haven't catalogued, including
+   plugin actions. Blocks can be added and removed freely; a rule
+   carries one effect per block.
 
 A live preview at the bottom shows the exact ``windowrule = …`` line
 that will be written to the config — so users can see what the visual
@@ -482,9 +484,6 @@ class WindowRuleEditDialog(SingletonDialogMixin, Adw.Dialog):
 
     def _on_enabled_changed(self, *_args: object) -> None:
         self._rule_enabled = self._enabled_row.get_active()
-        self._refresh()
-
-    def _on_field_changed(self, *_args: object) -> None:
         self._refresh()
 
     def _refresh(self) -> None:
