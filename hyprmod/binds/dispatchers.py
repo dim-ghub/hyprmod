@@ -239,7 +239,7 @@ DISPATCHER_CATEGORIES: list[DispatcherCategory] = [
         "icon": "application-x-addon-symbolic",
         "dispatchers": {
             "plugin:dynamic-cursors:magnify": {
-                "label": "Magnify Cursor (Dynamic Cursors)",
+                "label": "Magnify Cursor (Hypr Dynamic Cursors)",
                 "arg_type": "optional_text",
             },
         },
