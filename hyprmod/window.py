@@ -11,6 +11,7 @@ from hyprland_state import ANIM_LOOKUP, HyprlandState
 
 from hyprmod.core import config, profiles, schema
 from hyprmod.core.bug_report import build_bug_report_url
+from hyprmod.core.plugins import parse_plugin_options, serialize
 from hyprmod.core.settings import apply_saved_config_path, open_settings
 from hyprmod.core.state import AppState
 from hyprmod.core.undo import OptionChange, PairedOptionChange, UndoManager
@@ -24,6 +25,7 @@ from hyprmod.pages.layer_rules import LayerRulesPage
 from hyprmod.pages.layouts import LayoutsPage
 from hyprmod.pages.monitors import MonitorsPage
 from hyprmod.pages.pending import PendingChangesPage
+from hyprmod.pages.plugins import PluginsPage
 from hyprmod.pages.profiles import ProfilesPage
 from hyprmod.pages.section import SectionPage
 from hyprmod.pages.settings import SettingsPage
@@ -92,6 +94,12 @@ class HyprModWindow(Adw.ApplicationWindow):
             self._schema["groups"] = [
                 g for g in schema.get_groups(self._schema) if g["id"] != GESTURES
             ]
+
+        # Append plugin schemas (hidden from main sidebar so they only show in PluginsPage)
+        for plugin_group in schema.load_plugin_schemas():
+            plugin_group["hidden"] = True
+            self._schema["groups"].append(plugin_group)
+
         self.app_state = AppState(self.hypr)
         self._option_rows: dict[str, OptionRow] = {}
         # Track the PreferencesGroup that owns each option row so we can hide
@@ -118,6 +126,7 @@ class HyprModWindow(Adw.ApplicationWindow):
         self._layouts_page: LayoutsPage | None = None
         self._profiles_page: ProfilesPage | None = None
         self._settings_page: SettingsPage | None = None
+        self._plugins_page: PluginsPage | None = None
         self._pending_page: PendingChangesPage | None = None
         self._pre_search_page_id: str | None = None
         self._search_results: list | None = None
@@ -128,6 +137,8 @@ class HyprModWindow(Adw.ApplicationWindow):
         self._load_css()
         self._build_ui()
         self._register_state()
+        if self._plugins_page:
+            self._plugins_page._rebuild_list()
         self._refresh_all_modified_indicators()
 
     @property
@@ -308,6 +319,7 @@ class HyprModWindow(Adw.ApplicationWindow):
                 self._env_vars_page,
                 self._window_rules_page,
                 self._layer_rules_page,
+                self._plugins_page,
             )
             if p is not None
         ]
@@ -375,13 +387,13 @@ class HyprModWindow(Adw.ApplicationWindow):
             (EnvVarsPage, "_env_vars_page", "env_vars", "Env Variables"),
             (WindowRulesPage, "_window_rules_page", "window_rules", "Window Rules"),
             (LayerRulesPage, "_layer_rules_page", "layer_rules", "Layer Rules"),
+            (PluginsPage, "_plugins_page", "plugins", "Plugin Settings"),
         ]
         for cls, attr, slug, title in section_page_specs:
             page = cls(
                 self,
                 on_dirty_changed=self._on_section_dirty,
                 push_undo=self._undo.push,
-                saved_sections=self.saved_sections,
             )
             setattr(self, attr, page)
             self._page_stack.add_named(page.build(header=self._make_page_header(title)), slug)
@@ -567,13 +579,16 @@ class HyprModWindow(Adw.ApplicationWindow):
             result.append(pref_group)
         return result
 
-    def build_schema_group_widgets(self, group_id: str) -> list[Adw.PreferencesGroup]:
-        """Build PreferencesGroup widgets for a schema group by ID.
+    def build_schema_group_widgets(
+        self, group_id_or_dict: str | dict
+    ) -> list[Adw.PreferencesGroup]:
+        """Build PreferencesGroup widgets for a schema group by ID or dictionary."""
+        if isinstance(group_id_or_dict, str):
+            groups = schema.get_groups(self._schema)
+            group = next((g for g in groups if g["id"] == group_id_or_dict), None)
+        else:
+            group = group_id_or_dict
 
-        Used by special pages (e.g. monitors) that embed schema-driven options.
-        """
-        groups = schema.get_groups(self._schema)
-        group = next((g for g in groups if g["id"] == group_id), None)
         if not group:
             return []
         pref_groups = self._build_section_widgets(group)
@@ -1191,6 +1206,13 @@ class HyprModWindow(Adw.ApplicationWindow):
             lambda _p: has_owned_layer_rules,
             lambda p: p.get_layer_rule_lines(),
         )
+        if self._plugins_page is not None:
+            custom_plugins = self._plugins_page.custom_plugins
+        else:
+            custom_plugins = []
+        live_options = self.app_state.get_all_live_values()
+        supported_plugins = parse_plugin_options(live_options)
+        sections.plugins = serialize(supported_plugins + custom_plugins)
 
         return sections
 
@@ -1203,6 +1225,7 @@ class HyprModWindow(Adw.ApplicationWindow):
             hyprland_version=self.hypr.version,
         )
         self.app_state.mark_saved()
+
         self.hypr.clear_pending()
         for section in self._section_pages:
             section.mark_saved()
@@ -1271,8 +1294,10 @@ class HyprModWindow(Adw.ApplicationWindow):
         if self._layer_rules_page is not None:
             self._layer_rules_page.reload_from_saved(sections)
 
-        if self._workspaces_page is not None:
+        if self._workspaces_page:
             self._workspaces_page.reload_from_saved(sections)
+        if self._plugins_page:
+            self._plugins_page.reload_from_saved(sections)
 
         self._undo.clear()
         self._banner.hide()
