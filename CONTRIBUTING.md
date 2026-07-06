@@ -34,7 +34,13 @@ uv run pyright hyprmod/ tests/
 uv run pytest tests/ -v
 ```
 
-All four must pass before your PR can be merged.
+All four must pass before your PR can be merged. Run them before every push, not just once at the end. Don't lean on CI to catch formatting, lint, or type errors after the fact.
+
+For UI changes, also run `uv run hyprmod` against a live Hyprland and exercise the page you touched. Whole classes of bug (empty dialogs, stale state on first render, exceptions escaping GTK callbacks) only surface at runtime, and the checks above will not catch them. In the PR, say what you verified by hand.
+
+New pure logic under `core/` should ship with tests in `tests/`, following the existing class-based style. GTK page and widget code does not need unit tests.
+
+Add a bullet to `CHANGELOG.md` under `## [Unreleased]` for any user-visible change, referencing the PR or issue number.
 
 Then re-read your own diff with these in mind:
 
@@ -45,6 +51,7 @@ Then re-read your own diff with these in mind:
 - Comments or docstrings that just restate the code?
 - Reinvented wheel where stdlib or an existing helper would do?
 - Library workarounds that should be upstream changes?
+- One page reaching into another's private attributes instead of a public method?
 
 ## Code style
 
@@ -67,6 +74,12 @@ Things to avoid:
 - **Defensive code on non-boundary values**: don't `isinstance`-check values you constructed yourself, or guard against states your own code can't produce. Only validate at real boundaries (user input, external APIs).
 - **Backwards-compat shims for code being rewritten in the same PR**. Just rewrite it.
 - **Workarounds in place of root-cause fixes.**
+- **Reaching into another class's internals**: don't read or mutate another page's private attributes (`_owned`, `_external`, …) from outside it. Expose a public method on the owning page (e.g. `AutostartPage.has_command()`) and call that.
+
+## UI conventions
+
+- **Live-apply IPC from UI callbacks**: any `hypr.keyword()` / `hypr.command()` call triggered interactively by a widget (live-apply hooks, dialog Apply buttons) must be wrapped in `try_with_toast(..., catch=HyprlandError)`. If the compositor rejects the command, the exception otherwise escapes the GTK callback and leaves the UI out of sync with no feedback to the user.
+- **Initialization order**: pages are built before `_register_state()` runs, so `app_state.get()` returns `None` for options during a page's `__init__` and first `build()`. Don't read live state there and assume it is populated. Hook into state notifications, or rebuild once registration is done (the window calls the page's `_rebuild_list()` after `_register_state()`).
 
 ## Commits
 
@@ -99,6 +112,8 @@ If you need a new field, behavior, or type from one of them inside hyprmod:
 3. Use it natively here.
 
 **Never** monkey-patch these libraries. That includes mutating their private state, replacing their methods or attributes, and subclassing their types to add fields they don't define. Get behavior changes upstream first.
+
+Don't guess Hyprland's runtime behavior. Assumptions about the Lua or IPC API (what a call accepts, what a namespace contains at load time, when a value is available) must be checked against a running instance (`hyprctl`, `hyprctl eval`) or the Hyprland source, not inferred and then papered over with a workaround.
 
 ## Reporting bugs
 
